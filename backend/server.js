@@ -3,7 +3,6 @@ const express = require('express');
 const cors = require('cors');
 const axios = require('axios');
 const path = require('path');
-const fs = require('fs');
 
 const app = express();
 const PORT = process.env.PORT || 5000;
@@ -300,51 +299,24 @@ app.post('/api/auth/github/token', async (req, res) => {
   }
 });
 
-// Serve static files from the React app in production
-if (process.env.NODE_ENV === 'production') {
-  try {
-    const frontendPath = path.join(__dirname, '../frontend/dist');
-    console.log(`Serving static files from: ${frontendPath}`);
-    
-    // Verify the directory exists
-    if (!fs.existsSync(frontendPath)) {
-      console.error(`Error: Directory does not exist: ${frontendPath}`);
-      process.exit(1);
-    }
-    
-    // Serve static files with error handling
-    app.use(express.static(frontendPath, {
-      fallthrough: true // Allow the request to continue to the next middleware
-    }));
-    
-    // Debug all registered routes
-    console.log('Registered routes:');
-    app._router.stack.forEach((middleware) => {
-      if (middleware.route) {
-        // Routes registered directly on the app
-        console.log(`- ${Object.keys(middleware.route.methods).join(', ').toUpperCase()} ${middleware.route.path}`);
-      } else if (middleware.name === 'router') {
-        // Routes added as router
-        middleware.handle.stack.forEach((handler) => {
-          if (handler.route) {
-            console.log(`- ${Object.keys(handler.route.methods).join(', ').toUpperCase()} ${handler.route.path}`);
-          }
-        });
+// Frontend is hosted separately on Vercel
+console.log('Frontend is hosted separately on Vercel');
+
+// Log all registered routes for debugging
+console.log('Registered API routes:');
+app._router.stack.forEach((middleware) => {
+  if (middleware.route) {
+    // Routes registered directly on the app
+    console.log(`- ${Object.keys(middleware.route.methods).join(', ').toUpperCase()} ${middleware.route.path}`);
+  } else if (middleware.name === 'router') {
+    // Routes added as router
+    middleware.handle.stack.forEach((handler) => {
+      if (handler.route) {
+        console.log(`- ${Object.keys(handler.route.methods).join(', ').toUpperCase()} ${handler.route.path}`);
       }
     });
-    
-    // Catch-all route for SPA
-    console.log('Registering catch-all route for SPA');
-    app.get('*', (req, res) => {
-      console.log(`Handling catch-all route: ${req.path}`);
-      res.sendFile('index.html', { root: frontendPath });
-    });
-    
-  } catch (error) {
-    console.error('Error setting up static files:', error);
-    process.exit(1);
   }
-}
+});
 
 // Start server
 app.listen(PORT, () => {
