@@ -118,11 +118,15 @@ function getCookieOptions() {
     sameSite: isProduction ? 'none' : 'lax',
     maxAge: 10 * 60 * 1000, // 10 minutes
     path: '/',
+    // Removed domain to allow cross-origin cookies to work properly
   };
   
-  // In production, set the domain for cross-subdomain cookies
   if (isProduction) {
-    options.domain = '.onrender.com';
+    console.log('Production cookie options:', { 
+      secure: options.secure, 
+      sameSite: options.sameSite,
+      domain: options.domain 
+    });
   }
   
   return options;
@@ -181,19 +185,28 @@ function createFrontendUrl(path = '/login', params = {}) {
 app.get('/auth/github/callback', async (req, res) => {
   console.log('=== /auth/github/callback ===');
   console.log('Received callback with query params:', req.query);
+  console.log('Request headers:', req.headers);
+  console.log('Cookies received:', req.cookies);
   
   const { code, state: stateFromGitHub, error, error_description } = req.query;
   const stateFromCookie = req.cookies.oauth_state;
   const cookieOptions = getCookieOptions();
   
+  // Log state for debugging before clearing the cookie
+  console.log('State validation - before clear:', { 
+    stateFromGitHub, 
+    stateFromCookie,
+    cookiePresent: !!stateFromCookie,
+    cookieLength: stateFromCookie ? stateFromCookie.length : 0
+  });
+  
   // Clear the state cookie immediately after reading it
   res.clearCookie('oauth_state', { 
     ...cookieOptions,
-    maxAge: 0 // Expire immediately
+    maxAge: 0, // Expire immediately
+    path: '/',
+    domain: undefined // Ensure we don't set domain when clearing
   });
-  
-  // Log state for debugging
-  console.log('State validation:', { stateFromGitHub, stateFromCookie });
   
   // Check for OAuth errors
   if (error) {
@@ -202,13 +215,20 @@ app.get('/auth/github/callback', async (req, res) => {
     return res.redirect(redirectUrl.toString());
   }
   
-  // Verify state parameter to prevent CSRF
-  if (!stateFromCookie || stateFromGitHub !== stateFromCookie) {
-    console.error('State mismatch - possible CSRF attack or expired session', { 
-      stateFromGitHub, 
-      stateFromCookie 
+  // Validate state parameter
+  if (!stateFromGitHub || !stateFromCookie || stateFromGitHub !== stateFromCookie) {
+    console.error('State validation failed - possible CSRF attack or expired session:', {
+      stateFromGitHub: stateFromGitHub || 'undefined',
+      stateFromCookie: stateFromCookie || 'undefined',
+      statesMatch: stateFromGitHub === stateFromCookie,
+      receivedCookies: req.cookies,
+      requestHeaders: req.headers
     });
-    const redirectUrl = createFrontendUrl('/login', { error: 'state_mismatch' });
+    
+    const redirectUrl = createFrontendUrl('/login', { 
+      error: 'state_mismatch',
+      details: 'State validation failed. Please try logging in again.'
+    });
     return res.redirect(redirectUrl.toString());
   }
   
