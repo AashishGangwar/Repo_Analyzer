@@ -6,12 +6,29 @@ const axios = require('axios');
 const app = express();
 const PORT = process.env.PORT || 5000;
 
+// Debug log
+console.log('Starting server with configuration:');
+console.log(`- NODE_ENV: ${process.env.NODE_ENV || 'development'}`);
+console.log(`- PORT: ${PORT}`);
+console.log(`- GITHUB_CLIENT_ID: ${process.env.GITHUB_CLIENT_ID ? 'Set' : 'Not set'}`);
+
 // Middleware
 app.use(cors({
-  origin: 'http://localhost:5173', // Allow requests from your React app
+  origin: ['http://localhost:5173', 'https://repo-analyzer-2ra5.vercel.app'], // Add your Vercel URL here
   credentials: true
 }));
 app.use(express.json());
+
+// Root route
+app.get('/', (req, res) => {
+  res.json({ 
+    status: 'Server is running', 
+    endpoints: {
+      githubAuth: '/api/auth/github/token',
+      // Add other endpoints here
+    }
+  });
+});
 
 // GitHub OAuth token exchange endpoint
 app.post('/api/auth/github/token', async (req, res) => {
