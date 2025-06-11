@@ -20,16 +20,22 @@ const LoginForm = () => {
     try {
       console.log('=== GitHub Login Button Clicked ===');
       const clientId = import.meta.env.VITE_GITHUB_CLIENT_ID;
-      // For local development, use http://localhost:5000/auth/github/callback
-      // For production, use https://your-backend-url/auth/github/callback
-      const callbackUrl = window.location.hostname === 'localhost' 
-        ? 'http://localhost:5000/auth/github/callback'
-        : 'https://repo-analyzer-2ra5.vercel.app/auth/github/callback';
+      
+      // For development, use localhost:5000
+      // For production, use the same domain as the frontend with /api/auth/github/callback
+      const isLocalhost = window.location.hostname === 'localhost';
+      const backendBaseUrl = isLocalhost 
+        ? 'http://localhost:5000'
+        : 'https://repo-analyzer-2ra5.vercel.app';
+      
+      // Use the same callback URL format as your backend expects
+      const callbackUrl = `${backendBaseUrl}/api/auth/github/callback`;
       const scope = 'user:email';
       
       console.log('OAuth Parameters:', { 
         clientId, 
         callbackUrl,
+        isLocalhost,
         redirectUrl: `https://github.com/login/oauth/authorize?client_id=${clientId}&redirect_uri=${encodeURIComponent(callbackUrl)}&scope=${scope}`
       });
       

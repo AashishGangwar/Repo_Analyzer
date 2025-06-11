@@ -61,8 +61,8 @@ app.get('/', (req, res) => {
   });
 });
 
-// GitHub OAuth callback endpoint
-app.get('/auth/github/callback', async (req, res) => {
+// GitHub OAuth callback endpoint - handle both /api/auth/github/callback and /auth/github/callback for compatibility
+app.get(['/auth/github/callback', '/api/auth/github/callback'], async (req, res) => {
   const { code } = req.query;
   
   if (!code) {
