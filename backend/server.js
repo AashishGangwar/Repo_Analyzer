@@ -63,7 +63,9 @@ app.use((req, res, next) => {
 app.use(express.json());
 
 // Root route
-app.get(validateRoutePath('/'), (req, res) => {
+const rootPath = '/';
+validateRoutePath(rootPath);
+app.get(rootPath, (req, res) => {
   res.json({ 
     status: 'Server is running', 
     endpoints: {
@@ -74,7 +76,9 @@ app.get(validateRoutePath('/'), (req, res) => {
 });
 
 // GitHub OAuth callback endpoint
-app.get(validateRoutePath('/auth/github/callback'), async (req, res) => {
+const callbackPath = '/auth/github/callback';
+validateRoutePath(callbackPath);
+app.get(callbackPath, async (req, res) => {
   console.log('GitHub OAuth callback received', { query: req.query });
   
   const { code, state, error, error_description, error_uri } = req.query;
@@ -189,7 +193,9 @@ app.get(validateRoutePath('/auth/github/callback'), async (req, res) => {
 });
 
 // GitHub OAuth token exchange endpoint
-app.post(validateRoutePath('/api/auth/github/token'), async (req, res) => {
+const tokenPath = '/api/auth/github/token';
+validateRoutePath(tokenPath);
+app.post(tokenPath, async (req, res) => {
   // This endpoint is kept for backward compatibility
   // The new flow uses the /auth/github/callback endpoint above
   // Set CORS headers
