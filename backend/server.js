@@ -28,40 +28,54 @@ if (!process.env.GITHUB_CLIENT_ID || !process.env.GITHUB_CLIENT_SECRET) {
   process.exit(1);
 }
 
-// Configure CORS configuration
+// Configure CORS
 const isProduction = process.env.NODE_ENV === 'production';
-const frontendUrl = process.env.FRONTEND_URL || 'https://repo-analyzer-2ra5.vercel.app';
-
-// If in production, ensure FRONTEND_URL is set
-if (isProduction && !process.env.FRONTEND_URL) {
-  console.warn('WARNING: FRONTEND_URL environment variable is not set in production');
-}
-
-// Allowed origins - must match exactly with frontend URL
+const frontendUrl = (process.env.FRONTEND_URL || 'https://repo-analyzer-2ra5.vercel.app').replace(/\/+$/, '');
 const allowedOrigins = [
+  frontendUrl,
   'https://repo-analyzer-2ra5.vercel.app',
-  'http://localhost:5173'  // For local development
-];
+  'http://localhost:5173',
+  'http://localhost:4173',
+  'http://localhost:3000'
+].filter((value, index, self) => self.indexOf(value) === index); // Remove duplicates
 
-// CORS options
+// CORS configuration
 const corsOptions = {
   origin: function (origin, callback) {
-    // In production, only allow specific origins
-    if (isProduction) {
-      if (allowedOrigins.includes(origin)) {
-        return callback(null, true);
-      }
-      console.warn(`Blocked request from unauthorized origin: ${origin}`);
-      return callback(new Error('Not allowed by CORS'));
+    // Allow requests with no origin (like mobile apps, curl, postman)
+    if (!origin) {
+      console.log('Request with no origin - allowing with CORS');
+      return callback(null, true);
     }
-    // In development, allow all origins for easier testing
-    callback(null, true);
+    
+    // Normalize the origin by removing trailing slashes and protocol
+    const normalizedOrigin = origin.replace(/\/+$/, '').toLowerCase();
+    
+    // Check if the origin is in the allowed list
+    const isAllowed = allowedOrigins.some(allowed => {
+      const normalizedAllowed = allowed.toLowerCase().replace(/\/+$/, '');
+      return (
+        normalizedOrigin === normalizedAllowed ||
+        normalizedOrigin.startsWith(`${normalizedAllowed}/`) ||
+        normalizedOrigin.includes(normalizedAllowed.replace(/^https?:\/\//, ''))
+      );
+    });
+    
+    if (isAllowed) {
+      return callback(null, true);
+    }
+    
+    console.error('Blocked request from unauthorized origin:', origin);
+    console.error('Allowed origins:', allowedOrigins);
+    return callback(new Error('Not allowed by CORS'));
   },
   credentials: true,
-  methods: ['GET', 'POST', 'OPTIONS'],
-  allowedHeaders: ['Content-Type', 'Authorization'],
-  exposedHeaders: ['Set-Cookie'],
-  maxAge: 600 // 10 minutes
+  methods: ['GET', 'POST', 'OPTIONS', 'PUT', 'DELETE'],
+  allowedHeaders: ['Content-Type', 'Authorization', 'X-Requested-With', 'Accept'],
+  exposedHeaders: ['Set-Cookie', 'Authorization'],
+  maxAge: 600, // 10 minutes
+  preflightContinue: false,
+  optionsSuccessStatus: 204
 };
 
 // Log CORS configuration for debugging
@@ -69,7 +83,9 @@ console.log('CORS Configuration:', {
   isProduction,
   frontendUrl,
   allowedOrigins,
-  nodeEnv: process.env.NODE_ENV
+  nodeEnv: process.env.NODE_ENV,
+  allowedHeaders: corsOptions.allowedHeaders,
+  exposedHeaders: corsOptions.exposedHeaders
 });
 
 // Apply middleware
