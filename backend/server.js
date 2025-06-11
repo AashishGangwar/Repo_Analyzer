@@ -19,6 +19,10 @@ const allowedOrigins = [
   'https://repo-analyzer-2ra5.vercel.app/'
 ];
 
+// Add body parser middleware
+app.use(express.json());
+app.use(express.urlencoded({ extended: true }));
+
 // Enable CORS for all routes
 app.use((req, res, next) => {
   const origin = req.headers.origin;
@@ -57,8 +61,73 @@ app.get('/', (req, res) => {
   });
 });
 
+// GitHub OAuth callback endpoint
+app.get('/auth/github/callback', async (req, res) => {
+  const { code } = req.query;
+  
+  if (!code) {
+    return res.status(400).send('Authorization code is required');
+  }
+
+  try {
+    // Exchange the authorization code for an access token
+    const response = await axios.post(
+      'https://github.com/login/oauth/access_token',
+      {
+        client_id: process.env.GITHUB_CLIENT_ID,
+        client_secret: process.env.GITHUB_CLIENT_SECRET,
+        code,
+      },
+      {
+        headers: {
+          'Accept': 'application/json',
+          'Content-Type': 'application/json',
+        },
+      }
+    );
+
+    const { access_token, error: ghError, error_description } = response.data;
+
+    if (ghError) {
+      console.error('GitHub OAuth error:', { error: ghError, description: error_description });
+      return res.status(400).send(`GitHub OAuth error: ${ghError} - ${error_description}`);
+    }
+
+    // Get user data from GitHub
+    const userResponse = await axios.get('https://api.github.com/user', {
+      headers: {
+        Authorization: `token ${access_token}`,
+      },
+    });
+
+    // Get user emails
+    const emailsResponse = await axios.get('https://api.github.com/user/emails', {
+      headers: {
+        Authorization: `token ${access_token}`,
+      },
+    });
+
+    const primaryEmail = emailsResponse.data.find(email => email.primary)?.email || '';
+    const userData = {
+      ...userResponse.data,
+      email: primaryEmail || userResponse.data.email,
+      access_token: access_token,
+    };
+
+    // Redirect to frontend with user data
+    // In production, you should use a proper JWT or session token
+    const frontendUrl = allowedOrigins[0]; // Use the first allowed origin as frontend URL
+    return res.redirect(`${frontendUrl}/dashboard?user=${encodeURIComponent(JSON.stringify(userData))}`);
+  } catch (error) {
+    console.error('Error in GitHub OAuth callback:', error);
+    return res.status(500).send('Authentication failed. Please try again.');
+  }
+});
+
 // GitHub OAuth token exchange endpoint
 app.post('/api/auth/github/token', async (req, res) => {
+  // This endpoint is kept for backward compatibility
+  // The new flow uses the /auth/github/callback endpoint above
   // Set CORS headers
   const origin = req.headers.origin;
   if (allowedOrigins.some(allowedOrigin => origin === allowedOrigin || origin?.replace(/\/$/, '') === allowedOrigin.replace(/\/$/, ''))) {
