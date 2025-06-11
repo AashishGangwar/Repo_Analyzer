@@ -62,15 +62,26 @@ app.use(cors({
 // Handle preflight requests
 app.options('*', cors());
 
-// GitHub OAuth endpoint
+// Health check endpoint
+console.log('Registering GET route: /health');
+app.get('/health', (req, res) => {
+  res.json({ status: 'ok', timestamp: new Date().toISOString() });
+});
+
+// Root endpoint
 console.log('Registering GET route: /');
 app.get('/', (req, res) => {
-  const state = generateState();
-  const authUrl = `https://github.com/login/oauth/authorize?client_id=${process.env.GITHUB_CLIENT_ID}&scope=user:email&state=${state}`;
-  res.json({ 
-    status: 'Server is running',
-    github_auth_url: authUrl
-  });
+  try {
+    const state = generateState();
+    const authUrl = `https://github.com/login/oauth/authorize?client_id=${process.env.GITHUB_CLIENT_ID}&scope=user:email&state=${state}`;
+    res.json({ 
+      status: 'Server is running',
+      github_auth_url: authUrl
+    });
+  } catch (error) {
+    console.error('Error in root route:', error);
+    res.status(500).json({ error: 'Internal server error' });
+  }
 });
 
 // In-memory store for OAuth state (use Redis in production)
