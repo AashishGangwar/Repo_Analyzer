@@ -3,6 +3,22 @@ const express = require('express');
 const cors = require('cors');
 const axios = require('axios');
 const path = require('path');
+const cookieParser = require('cookie-parser');
+
+// Log environment variables (sanitized)
+console.log('Environment Variables:', {
+  NODE_ENV: process.env.NODE_ENV,
+  PORT: process.env.PORT || 5000,
+  GITHUB_CLIENT_ID: !!process.env.GITHUB_CLIENT_ID ? 'Set' : 'Not set',
+  GITHUB_CLIENT_SECRET: !!process.env.GITHUB_CLIENT_SECRET ? 'Set' : 'Not set'
+});
+
+// Validate required environment variables
+if (!process.env.GITHUB_CLIENT_ID || !process.env.GITHUB_CLIENT_SECRET) {
+  console.error('❌ Error: Missing required GitHub OAuth credentials');
+  console.error('Please set GITHUB_CLIENT_ID and GITHUB_CLIENT_SECRET environment variables');
+  process.exit(1);
+}
 
 const app = express();
 const PORT = process.env.PORT || 5000;
@@ -14,55 +30,72 @@ console.log(`- NODE_ENV: ${process.env.NODE_ENV || 'development'}`);
 console.log(`- PORT: ${PORT}`);
 console.log(`- GITHUB_CLIENT_ID: ${process.env.GITHUB_CLIENT_ID ? 'Set' : 'Not set'}`);
 
-// CORS Configuration
+// Configure CORS with allowed origins
 const allowedOrigins = [
   'http://localhost:5173',
-  'https://repo-analyzer-2ra5.vercel.app',
   'https://repo-analyzer-2ra5.vercel.app'
-].filter(Boolean);
+];
 
-// Add body parser middleware
+// Apply middleware
 app.use(express.json());
 app.use(express.urlencoded({ extended: true }));
+app.use(cookieParser());
 
-// Enable CORS for all routes
-app.use((req, res, next) => {
-  const origin = req.headers.origin;
-  
-  // Allow requests with no origin (like mobile apps or curl requests)
-  if (!origin) return next();
-  
-  // Check if origin is allowed
-  if (allowedOrigins.some(allowedOrigin => 
-    origin === allowedOrigin || 
-    origin.replace(/\/$/, '') === allowedOrigin.replace(/\/$/, '')
-  )) {
-    res.header('Access-Control-Allow-Origin', origin);
-    res.header('Access-Control-Allow-Credentials', true);
-    res.header('Access-Control-Allow-Methods', 'GET, POST, PUT, DELETE, OPTIONS');
-    res.header('Access-Control-Allow-Headers', 'Origin, X-Requested-With, Content-Type, Accept, Authorization');
-  }
-  
-  // Handle preflight requests
-  if (req.method === 'OPTIONS') {
-    return res.status(200).end();
-  }
-  
-  next();
-});
-app.use(express.json());
+// Configure CORS with credentials support
+app.use(cors({
+  origin: function(origin, callback) {
+    // Allow requests with no origin (like mobile apps, curl, etc.)
+    if (!origin) return callback(null, true);
+    
+    if (allowedOrigins.indexOf(origin) === -1) {
+      const msg = `The CORS policy for this site does not allow access from the specified origin: ${origin}`;
+      console.warn(msg);
+      return callback(new Error(msg), false);
+    }
+    return callback(null, true);
+  },
+  methods: ['GET', 'POST', 'OPTIONS'],
+  allowedHeaders: ['Origin', 'X-Requested-With', 'Content-Type', 'Accept', 'Authorization'],
+  credentials: true
+}));
 
-// Root route
+// Handle preflight requests
+app.options('*', cors());
+
+// GitHub OAuth endpoint
 console.log('Registering GET route: /');
 app.get('/', (req, res) => {
+  const state = generateState();
+  const authUrl = `https://github.com/login/oauth/authorize?client_id=${process.env.GITHUB_CLIENT_ID}&scope=user:email&state=${state}`;
   res.json({ 
-    status: 'Server is running', 
-    endpoints: {
-      githubAuth: '/api/auth/github/token',
-      // Add other endpoints here
-    }
+    status: 'Server is running',
+    github_auth_url: authUrl
   });
 });
+
+// In-memory store for OAuth state (use Redis in production)
+const stateStore = new Map();
+
+// Generate and store state for CSRF protection
+function generateState() {
+  const state = require('crypto').randomBytes(16).toString('hex');
+  stateStore.set(state, { timestamp: Date.now() });
+  // Clean up old states (older than 10 minutes)
+  const now = Date.now();
+  for (const [st, data] of stateStore.entries()) {
+    if (now - data.timestamp > 10 * 60 * 1000) { // 10 minutes
+      stateStore.delete(st);
+    }
+  }
+  return state;
+}
+
+function verifyState(state) {
+  const stateData = stateStore.get(state);
+  if (!stateData) return false;
+  stateStore.delete(state); // State should be used once
+  return true;
+}
 
 // GitHub OAuth callback endpoint
 console.log('Registering GET route: /auth/github/callback');
@@ -72,19 +105,14 @@ app.get('/auth/github/callback', async (req, res) => {
   const { code, state, error, error_description, error_uri } = req.query;
   
   // Verify state parameter to prevent CSRF attacks
-  if (!state) {
-    console.error('Missing state parameter in OAuth callback');
+  if (!state || !verifyState(state)) {
+    console.error('Invalid state parameter in OAuth callback');
     return res.status(400).json({
       success: false,
-      error: 'Missing state parameter',
-      message: 'Authentication failed due to missing state parameter.'
+      error: 'Invalid state parameter',
+      message: 'Authentication failed due to invalid state parameter.'
     });
   }
-  
-  // Note: In a real application, you would verify the state parameter matches what was sent
-  // Since we can't access the frontend's session storage here, we'll trust the state for now
-  // In production, consider using a session store or signed cookies to verify the state
-  console.log('OAuth state parameter:', state);
   
   // Handle GitHub OAuth errors
   if (error) {
@@ -160,15 +188,22 @@ app.get('/auth/github/callback', async (req, res) => {
       access_token: access_token,
     };
 
-    // Redirect to frontend with user data
-    // In production, you should use a proper JWT or session token
-    const frontendUrl = allowedOrigins[0] || 'https://repo-analyzer-2ra5.vercel.app';
-    const userDataParam = encodeURIComponent(JSON.stringify(userData));
-    const redirectUrl = new URL('/dashboard', frontendUrl);
-    redirectUrl.searchParams.set('user', userDataParam);
+    // Set secure HTTP-only cookie with token
+    const cookieOptions = {
+      httpOnly: true,
+      secure: process.env.NODE_ENV === 'production',
+      sameSite: process.env.NODE_ENV === 'production' ? 'strict' : 'lax',
+      maxAge: 24 * 60 * 60 * 1000 // 1 day
+    };
     
-    console.log('Redirecting to:', redirectUrl.toString());
-    return res.redirect(redirectUrl.toString());
+    res.cookie('auth_token', access_token, cookieOptions);
+    
+    // Redirect to frontend
+    const frontendUrl = process.env.FRONTEND_URL || 'http://localhost:5173';
+    const redirectUrl = new URL('/dashboard', frontendUrl);
+    
+    console.log('Redirecting to frontend with secure cookie');
+    res.redirect(redirectUrl.toString());
   } catch (error) {
     console.error('Error in GitHub OAuth callback:', {
       message: error.message,
@@ -299,24 +334,40 @@ app.post('/api/auth/github/token', async (req, res) => {
   }
 });
 
+// 404 Handler - Must be the last route
+app.use((req, res) => {
+  res.status(404).json({ 
+    success: false,
+    error: 'Route not found',
+    path: req.path,
+    method: req.method
+  });
+});
+
 // Frontend is hosted separately on Vercel
 console.log('Frontend is hosted separately on Vercel');
 
 // Log all registered routes for debugging
 console.log('Registered API routes:');
-app._router.stack.forEach((middleware) => {
-  if (middleware.route) {
-    // Routes registered directly on the app
-    console.log(`- ${Object.keys(middleware.route.methods).join(', ').toUpperCase()} ${middleware.route.path}`);
-  } else if (middleware.name === 'router') {
-    // Routes added as router
-    middleware.handle.stack.forEach((handler) => {
-      if (handler.route) {
-        console.log(`- ${Object.keys(handler.route.methods).join(', ').toUpperCase()} ${handler.route.path}`);
-      }
-    });
-  }
-});
+
+// Safely log routes only if _router is available
+if (app._router && app._router.stack) {
+  app._router.stack.forEach((middleware) => {
+    if (middleware.route) {
+      // Routes registered directly on the app
+      console.log(`- ${Object.keys(middleware.route.methods).join(', ').toUpperCase()} ${middleware.route.path}`);
+    } else if (middleware.name === 'router' && middleware.handle && middleware.handle.stack) {
+      // Routes added as router
+      middleware.handle.stack.forEach((handler) => {
+        if (handler && handler.route) {
+          console.log(`- ${Object.keys(handler.route.methods).join(', ').toUpperCase()} ${handler.route.path}`);
+        }
+      });
+    }
+  });
+} else {
+  console.log('No routes found or router not initialized yet');
+}
 
 // Start server
 app.listen(PORT, () => {
