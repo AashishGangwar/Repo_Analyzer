@@ -61,12 +61,8 @@ app.get('/', (req, res) => {
   });
 });
 
-// GitHub OAuth callback endpoint - handle both /api/auth/github/callback and /auth/github/callback for compatibility
+// GitHub OAuth callback endpoint
 app.get('/auth/github/callback', async (req, res) => {
-  // Also handle the /api/auth/github/callback path
-  if (req.originalUrl.startsWith('/api/auth/github/callback')) {
-    console.log('Legacy callback URL used:', req.originalUrl);
-  }
   console.log('GitHub OAuth callback received', { query: req.query });
   
   const { code, state, error, error_description, error_uri } = req.query;
@@ -162,10 +158,13 @@ app.get('/auth/github/callback', async (req, res) => {
 
     // Redirect to frontend with user data
     // In production, you should use a proper JWT or session token
-    const frontendUrl = allowedOrigins[0]; // Use the first allowed origin as frontend URL
-    const redirectUrl = `${frontendUrl}/dashboard?user=${encodeURIComponent(JSON.stringify(userData))}`;
-    console.log('Redirecting to:', redirectUrl);
-    return res.redirect(redirectUrl);
+    const frontendUrl = allowedOrigins[0] || 'https://repo-analyzer-2ra5.vercel.app';
+    const userDataParam = encodeURIComponent(JSON.stringify(userData));
+    const redirectUrl = new URL('/dashboard', frontendUrl);
+    redirectUrl.searchParams.set('user', userDataParam);
+    
+    console.log('Redirecting to:', redirectUrl.toString());
+    return res.redirect(redirectUrl.toString());
   } catch (error) {
     console.error('Error in GitHub OAuth callback:', {
       message: error.message,
