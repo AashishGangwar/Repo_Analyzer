@@ -63,11 +63,24 @@ app.get('/', (req, res) => {
 
 // GitHub OAuth callback endpoint - handle both /api/auth/github/callback and /auth/github/callback for compatibility
 app.get(['/auth/github/callback', '/api/auth/github/callback'], async (req, res) => {
-  const { code } = req.query;
+  console.log('GitHub OAuth callback received', { query: req.query });
+  
+  const { code, error, error_description, error_uri } = req.query;
+  
+  // Handle GitHub OAuth errors
+  if (error) {
+    console.error('GitHub OAuth error in callback:', { error, error_description, error_uri });
+    return res.status(400).send(`GitHub OAuth error: ${error} - ${error_description}`);
+  }
   
   if (!code) {
+    console.error('No authorization code received in callback');
     return res.status(400).send('Authorization code is required');
   }
+
+  console.log('Exchanging authorization code for access token...');
+  console.log('Using client_id:', process.env.GITHUB_CLIENT_ID ? 'present' : 'missing');
+  console.log('Using client_secret:', process.env.GITHUB_CLIENT_SECRET ? 'present' : 'missing');
 
   try {
     // Exchange the authorization code for an access token
@@ -86,11 +99,23 @@ app.get(['/auth/github/callback', '/api/auth/github/callback'], async (req, res)
       }
     );
 
-    const { access_token, error: ghError, error_description } = response.data;
+    console.log('GitHub token exchange response:', response.data);
+    
+    const { access_token, error: ghError, error_description: ghErrorDescription } = response.data;
 
     if (ghError) {
-      console.error('GitHub OAuth error:', { error: ghError, description: error_description });
-      return res.status(400).send(`GitHub OAuth error: ${ghError} - ${error_description}`);
+      console.error('GitHub OAuth error in token exchange:', { 
+        error: ghError, 
+        description: ghErrorDescription,
+        client_id: process.env.GITHUB_CLIENT_ID,
+        has_client_secret: !!process.env.GITHUB_CLIENT_SECRET
+      });
+      return res.status(400).send(`GitHub OAuth error: ${ghError} - ${ghErrorDescription}`);
+    }
+    
+    if (!access_token) {
+      console.error('No access token received from GitHub');
+      return res.status(400).send('Failed to obtain access token from GitHub');
     }
 
     // Get user data from GitHub
@@ -117,10 +142,17 @@ app.get(['/auth/github/callback', '/api/auth/github/callback'], async (req, res)
     // Redirect to frontend with user data
     // In production, you should use a proper JWT or session token
     const frontendUrl = allowedOrigins[0]; // Use the first allowed origin as frontend URL
-    return res.redirect(`${frontendUrl}/dashboard?user=${encodeURIComponent(JSON.stringify(userData))}`);
+    const redirectUrl = `${frontendUrl}/dashboard?user=${encodeURIComponent(JSON.stringify(userData))}`;
+    console.log('Redirecting to:', redirectUrl);
+    return res.redirect(redirectUrl);
   } catch (error) {
-    console.error('Error in GitHub OAuth callback:', error);
-    return res.status(500).send('Authentication failed. Please try again.');
+    console.error('Error in GitHub OAuth callback:', {
+      message: error.message,
+      code: error.code,
+      response: error.response?.data,
+      stack: error.stack
+    });
+    return res.status(500).send(`Authentication failed: ${error.message}`);
   }
 });
 
