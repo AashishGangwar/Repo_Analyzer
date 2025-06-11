@@ -274,7 +274,19 @@ app.post('/api/auth/github/token', async (req, res) => {
   }
 });
 
+// Serve static files from the React app in production
+if (process.env.NODE_ENV === 'production') {
+  const path = require('path');
+  app.use(express.static(path.join(__dirname, '../frontend/dist')));
+  
+  // Handle React routing, return all requests to React app
+  app.get('*', (req, res) => {
+    res.sendFile(path.join(__dirname, '../frontend/dist/index.html'));
+  });
+}
+
 // Start server
 app.listen(PORT, () => {
   console.log(`Server running on http://localhost:${PORT}`);
+  console.log(`NODE_ENV: ${process.env.NODE_ENV || 'development'}`);
 });

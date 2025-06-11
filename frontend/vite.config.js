@@ -9,11 +9,18 @@ export default defineConfig({
     host: 'localhost',
     strictPort: true,
     proxy: {
-      // Proxy API requests to avoid CORS issues
-      '/api/github': {
+      // Proxy API requests to your backend
+      '/api': {
+        target: 'http://localhost:5000',
+        changeOrigin: true,
+        secure: false,
+        rewrite: (path) => path.replace(/^\/api/, '')
+      },
+      // Proxy GitHub API requests
+      '/github': {
         target: 'https://github.com',
         changeOrigin: true,
-        rewrite: (path) => path.replace(/^\/api\/github/, '')
+        rewrite: (path) => path.replace(/^\/github/, '')
       }
     },
     headers: {
