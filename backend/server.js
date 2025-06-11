@@ -314,12 +314,14 @@ app.post(tokenPath, async (req, res) => {
 
 // Serve static files from the React app in production
 if (process.env.NODE_ENV === 'production') {
-  const path = require('path');
-  app.use(express.static(path.join(__dirname, '../frontend/dist')));
+  const frontendPath = path.join(__dirname, '../frontend/dist');
   
-  // Handle React routing, return all requests to React app
-  app.get('*', (req, res) => {
-    res.sendFile(path.join(__dirname, '../frontend/dist/index.html'));
+  // Serve static files
+  app.use(express.static(frontendPath));
+  
+  // Handle React routing - use a regex pattern instead of '*' to avoid path-to-regexp issues
+  app.get(/^\/(?!api).*/, (req, res) => {
+    res.sendFile('index.html', { root: frontendPath });
   });
 }
 
