@@ -8,16 +8,6 @@ const app = express();
 const PORT = process.env.PORT || 5000;
 
 // Validate route paths to prevent path-to-regexp errors
-const validateRoutePath = (path) => {
-  if (typeof path !== 'string') {
-    throw new Error(`Invalid route path: ${path}. Path must be a string.`);
-  }
-  if (path.includes('//')) {
-    throw new Error(`Invalid route path: ${path}. Path contains double slashes.`);
-  }
-  return true;
-};
-
 // Debug log
 console.log('Starting server with configuration:');
 console.log(`- NODE_ENV: ${process.env.NODE_ENV || 'development'}`);
@@ -62,21 +52,9 @@ app.use((req, res, next) => {
 });
 app.use(express.json());
 
-// Helper function to safely register routes
-const registerRoute = (method, path, handler) => {
-  console.log(`Registering ${method.toUpperCase()} route: ${path}`);
-  try {
-    validateRoutePath(path);
-    app[method.toLowerCase()](path, handler);
-  } catch (error) {
-    console.error(`Failed to register ${method.toUpperCase()} ${path}:`, error.message);
-    throw error;
-  }
-};
-
 // Root route
-const rootPath = '/';
-registerRoute('get', rootPath, (req, res) => {
+console.log('Registering GET route: /');
+app.get('/', (req, res) => {
   res.json({ 
     status: 'Server is running', 
     endpoints: {
@@ -87,8 +65,8 @@ registerRoute('get', rootPath, (req, res) => {
 });
 
 // GitHub OAuth callback endpoint
-const callbackPath = '/auth/github/callback';
-registerRoute('get', callbackPath, async (req, res) => {
+console.log('Registering GET route: /auth/github/callback');
+app.get('/auth/github/callback', async (req, res) => {
   console.log('GitHub OAuth callback received', { query: req.query });
   
   const { code, state, error, error_description, error_uri } = req.query;
@@ -203,8 +181,8 @@ registerRoute('get', callbackPath, async (req, res) => {
 });
 
 // GitHub OAuth token exchange endpoint
-const tokenPath = '/api/auth/github/token';
-registerRoute('post', tokenPath, async (req, res) => {
+console.log('Registering POST route: /api/auth/github/token');
+app.post('/api/auth/github/token', async (req, res) => {
   // This endpoint is kept for backward compatibility
   // The new flow uses the /auth/github/callback endpoint above
   // Set CORS headers
@@ -330,11 +308,11 @@ if (process.env.NODE_ENV === 'production') {
   app.use(express.static(frontendPath));
   
   // Handle React routing - catch all other routes and return the React app
-  const catchAllPath = '/*';
-  registerRoute('get', catchAllPath, (req, res) => {
+  app.get('*', (req, res) => {
     console.log(`Handling catch-all route: ${req.path}`);
     res.sendFile('index.html', { root: frontendPath });
   });
+  console.log('Registered catch-all route for SPA routing');
 }
 
 // Start server
