@@ -16,8 +16,8 @@ console.log(`- GITHUB_CLIENT_ID: ${process.env.GITHUB_CLIENT_ID ? 'Set' : 'Not s
 const allowedOrigins = [
   'http://localhost:5173',
   'https://repo-analyzer-2ra5.vercel.app',
-  'https://repo-analyzer-2ra5.vercel.app/'
-];
+  'https://repo-analyzer-2ra5.vercel.app'
+].filter(Boolean);
 
 // Add body parser middleware
 app.use(express.json());
@@ -62,7 +62,11 @@ app.get('/', (req, res) => {
 });
 
 // GitHub OAuth callback endpoint - handle both /api/auth/github/callback and /auth/github/callback for compatibility
-app.get(['/auth/github/callback', '/api/auth/github/callback'], async (req, res) => {
+app.get('/auth/github/callback', async (req, res) => {
+  // Also handle the /api/auth/github/callback path
+  if (req.originalUrl.startsWith('/api/auth/github/callback')) {
+    console.log('Legacy callback URL used:', req.originalUrl);
+  }
   console.log('GitHub OAuth callback received', { query: req.query });
   
   const { code, state, error, error_description, error_uri } = req.query;
@@ -99,17 +103,19 @@ app.get(['/auth/github/callback', '/api/auth/github/callback'], async (req, res)
 
   try {
     // Exchange the authorization code for an access token
+    console.log('Exchanging code for token with client_id:', process.env.GITHUB_CLIENT_ID);
+    const tokenParams = new URLSearchParams();
+    tokenParams.append('client_id', process.env.GITHUB_CLIENT_ID);
+    tokenParams.append('client_secret', process.env.GITHUB_CLIENT_SECRET);
+    tokenParams.append('code', code);
+    
     const response = await axios.post(
       'https://github.com/login/oauth/access_token',
-      {
-        client_id: process.env.GITHUB_CLIENT_ID,
-        client_secret: process.env.GITHUB_CLIENT_SECRET,
-        code,
-      },
+      tokenParams.toString(),
       {
         headers: {
           'Accept': 'application/json',
-          'Content-Type': 'application/json',
+          'Content-Type': 'application/x-www-form-urlencoded',
         },
       }
     );
