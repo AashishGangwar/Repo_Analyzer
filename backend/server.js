@@ -2,9 +2,21 @@ require('dotenv').config();
 const express = require('express');
 const cors = require('cors');
 const axios = require('axios');
+const path = require('path');
 
 const app = express();
 const PORT = process.env.PORT || 5000;
+
+// Validate route paths to prevent path-to-regexp errors
+const validateRoutePath = (path) => {
+  if (typeof path !== 'string') {
+    throw new Error(`Invalid route path: ${path}. Path must be a string.`);
+  }
+  if (path.includes('//')) {
+    throw new Error(`Invalid route path: ${path}. Path contains double slashes.`);
+  }
+  return true;
+};
 
 // Debug log
 console.log('Starting server with configuration:');
@@ -51,7 +63,7 @@ app.use((req, res, next) => {
 app.use(express.json());
 
 // Root route
-app.get('/', (req, res) => {
+app.get(validateRoutePath('/'), (req, res) => {
   res.json({ 
     status: 'Server is running', 
     endpoints: {
@@ -62,7 +74,7 @@ app.get('/', (req, res) => {
 });
 
 // GitHub OAuth callback endpoint
-app.get('/auth/github/callback', async (req, res) => {
+app.get(validateRoutePath('/auth/github/callback'), async (req, res) => {
   console.log('GitHub OAuth callback received', { query: req.query });
   
   const { code, state, error, error_description, error_uri } = req.query;
@@ -177,7 +189,7 @@ app.get('/auth/github/callback', async (req, res) => {
 });
 
 // GitHub OAuth token exchange endpoint
-app.post('/api/auth/github/token', async (req, res) => {
+app.post(validateRoutePath('/api/auth/github/token'), async (req, res) => {
   // This endpoint is kept for backward compatibility
   // The new flow uses the /auth/github/callback endpoint above
   // Set CORS headers
