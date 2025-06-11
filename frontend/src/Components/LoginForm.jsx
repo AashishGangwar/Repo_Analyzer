@@ -18,11 +18,6 @@ const LoginForm = () => {
     setError('');
     
     try {
-      const clientId = import.meta.env.VITE_GITHUB_CLIENT_ID;
-      if (!clientId) {
-        throw new Error('GitHub Client ID is not configured');
-      }
-      
       // Determine environment
       const isLocalhost = window.location.hostname === 'localhost' || 
                          window.location.hostname === '127.0.0.1';
@@ -32,23 +27,8 @@ const LoginForm = () => {
         ? 'http://localhost:5000'  // Local development
         : 'https://repo-analyzer-vpzo.onrender.com'; // Production backend
       
-      // Configure OAuth parameters
-      const callbackUrl = `${backendBaseUrl}/auth/github/callback`;
-      const scope = 'user:email';
-      const state = Math.random().toString(36).substring(2); // Add CSRF protection
-      
-      // Store state in session storage for verification
-      sessionStorage.setItem('github_oauth_state', state);
-      
-      // Build the authorization URL
-      const authUrl = new URL('https://github.com/login/oauth/authorize');
-      authUrl.searchParams.append('client_id', clientId);
-      authUrl.searchParams.append('redirect_uri', callbackUrl);
-      authUrl.searchParams.append('scope', scope);
-      authUrl.searchParams.append('state', state);
-      
-      // Redirect to GitHub OAuth
-      window.location.href = authUrl.toString();
+      // Redirect to backend OAuth endpoint
+      window.location.href = `${backendBaseUrl}/auth/github`;
     } catch (err) {
       console.error('GitHub login error:', err);
       setError('Failed to initiate GitHub login. Please try again.');

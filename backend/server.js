@@ -209,13 +209,14 @@ app.get('/auth/github/callback', async (req, res) => {
 
     console.log('Exchanging authorization code for access token...');
 
-    // Exchange the authorization code for an access token
+    // Exchange code for access token
     const tokenResponse = await axios.post(
       'https://github.com/login/oauth/access_token',
       {
         client_id: process.env.GITHUB_CLIENT_ID,
         client_secret: process.env.GITHUB_CLIENT_SECRET,
-        code: code
+        code,
+        state: stateFromGitHub
       },
       {
         headers: {
@@ -225,22 +226,71 @@ app.get('/auth/github/callback', async (req, res) => {
       }
     );
 
-    const { access_token } = tokenResponse.data;
-    
-    if (!access_token) {
-      console.error('No access token received from GitHub');
-      return res.status(400).json({
-        success: false,
-        error: 'Failed to obtain access token from GitHub'
-      });
+    if (tokenResponse.data.error) {
+      console.error('GitHub token exchange error:', tokenResponse.data);
+      return res.redirect(`${process.env.FRONTEND_URL || 'http://localhost:5173'}/login?error=auth_failed`);
     }
 
-    // Redirect to frontend with token
-    const frontendUrl = process.env.FRONTEND_URL || 'http://localhost:5173';
-    const redirectUrl = new URL('/auth/callback', frontendUrl);
-    redirectUrl.searchParams.set('token', access_token);
+    const { access_token: accessToken } = tokenResponse.data;
     
-    res.redirect(redirectUrl.toString());
+    // Get user data from GitHub
+    const userResponse = await axios.get('https://api.github.com/user', {
+      headers: {
+        'Authorization': `token ${accessToken}`,
+        'Accept': 'application/vnd.github.v3+json'
+      }
+    });
+
+    // Get user emails
+    const emailsResponse = await axios.get('https://api.github.com/user/emails', {
+      headers: {
+        'Authorization': `token ${accessToken}`,
+        'Accept': 'application/vnd.github.v3+json'
+      }
+    });
+
+    const primaryEmail = emailsResponse.data.find(email => email.primary)?.email || '';
+    
+    // Set the access token in an HTTP-only cookie
+    const cookieOptions = {
+      httpOnly: true,
+      secure: process.env.NODE_ENV === 'production',
+      sameSite: process.env.NODE_ENV === 'production' ? 'none' : 'lax',
+      maxAge: 24 * 60 * 60 * 1000, // 1 day
+      path: '/',
+    };
+    
+    if (process.env.NODE_ENV === 'production') {
+      cookieOptions.domain = '.onrender.com';
+    }
+    
+    // Set the token in a cookie
+    res.cookie('github_token', accessToken, cookieOptions);
+    
+    // Create a JWT or use the GitHub token for your app's authentication
+    // For now, we'll just use the GitHub token
+    const userData = {
+      id: userResponse.data.id,
+      login: userResponse.data.login,
+      name: userResponse.data.name,
+      email: primaryEmail,
+      avatar_url: userResponse.data.avatar_url
+    };
+    
+    // Set user data in a secure, httpOnly cookie
+    const userDataString = JSON.stringify(userData);
+    res.cookie('user_data', userDataString, {
+      ...cookieOptions,
+      httpOnly: false // Allow client-side access for now
+    });
+    
+    // Redirect to the frontend with success status
+    const frontendUrl = new URL(process.env.FRONTEND_URL || 'http://localhost:5173');
+    frontendUrl.searchParams.set('login', 'success');
+    
+    // Redirect to the frontend with the token in the URL (temporary for demo)
+    // In production, you should only use HTTP-only cookies and not expose tokens in URLs
+    res.redirect(`${frontendUrl.toString()}`);
   } catch (error) {
     console.error('Error in GitHub OAuth callback:', {
       message: error.message,
