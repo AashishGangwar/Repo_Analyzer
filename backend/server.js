@@ -308,7 +308,7 @@ if (process.env.NODE_ENV === 'production') {
   app.use(express.static(frontendPath));
   
   // Handle React routing - catch all other routes and return the React app
-  app.get('*', (req, res) => {
+  app.get('/*', (req, res) => {
     console.log(`Handling catch-all route: ${req.path}`);
     res.sendFile('index.html', { root: frontendPath });
   });
