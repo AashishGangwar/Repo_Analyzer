@@ -62,10 +62,21 @@ app.use((req, res, next) => {
 });
 app.use(express.json());
 
+// Helper function to safely register routes
+const registerRoute = (method, path, handler) => {
+  console.log(`Registering ${method.toUpperCase()} route: ${path}`);
+  try {
+    validateRoutePath(path);
+    app[method.toLowerCase()](path, handler);
+  } catch (error) {
+    console.error(`Failed to register ${method.toUpperCase()} ${path}:`, error.message);
+    throw error;
+  }
+};
+
 // Root route
 const rootPath = '/';
-validateRoutePath(rootPath);
-app.get(rootPath, (req, res) => {
+registerRoute('get', rootPath, (req, res) => {
   res.json({ 
     status: 'Server is running', 
     endpoints: {
@@ -77,8 +88,7 @@ app.get(rootPath, (req, res) => {
 
 // GitHub OAuth callback endpoint
 const callbackPath = '/auth/github/callback';
-validateRoutePath(callbackPath);
-app.get(callbackPath, async (req, res) => {
+registerRoute('get', callbackPath, async (req, res) => {
   console.log('GitHub OAuth callback received', { query: req.query });
   
   const { code, state, error, error_description, error_uri } = req.query;
@@ -194,8 +204,7 @@ app.get(callbackPath, async (req, res) => {
 
 // GitHub OAuth token exchange endpoint
 const tokenPath = '/api/auth/github/token';
-validateRoutePath(tokenPath);
-app.post(tokenPath, async (req, res) => {
+registerRoute('post', tokenPath, async (req, res) => {
   // This endpoint is kept for backward compatibility
   // The new flow uses the /auth/github/callback endpoint above
   // Set CORS headers
@@ -315,12 +324,15 @@ app.post(tokenPath, async (req, res) => {
 // Serve static files from the React app in production
 if (process.env.NODE_ENV === 'production') {
   const frontendPath = path.join(__dirname, '../frontend/dist');
+  console.log(`Serving static files from: ${frontendPath}`);
   
   // Serve static files
   app.use(express.static(frontendPath));
   
-  // Handle React routing - use a regex pattern instead of '*' to avoid path-to-regexp issues
-  app.get(/^\/(?!api).*/, (req, res) => {
+  // Handle React routing - catch all other routes and return the React app
+  const catchAllPath = '/*';
+  registerRoute('get', catchAllPath, (req, res) => {
+    console.log(`Handling catch-all route: ${req.path}`);
     res.sendFile('index.html', { root: frontendPath });
   });
 }
