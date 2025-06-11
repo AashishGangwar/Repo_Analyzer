@@ -81,18 +81,43 @@ app.get('/auth/github', (req, res) => {
   try {
     const state = generateState();
     
-    // Set state in HTTP-only cookie
-    res.cookie('oauth_state', state, {
+    console.log('=== /auth/github ===');
+    console.log('Generated state:', state);
+    console.log('Request headers:', req.headers);
+    
+    // Set state in HTTP-only cookie with root path
+    const cookieOptions = {
       httpOnly: true,
       secure: process.env.NODE_ENV === 'production',
-      sameSite: 'lax',
+      sameSite: process.env.NODE_ENV === 'production' ? 'none' : 'lax',
       maxAge: 10 * 60 * 1000, // 10 minutes
-      path: '/auth/github/callback' // Only send this cookie to the callback endpoint
-    });
+      path: '/', // Set to root path to ensure it's sent to all paths
+    };
+    
+    // Only set domain in production
+    if (process.env.NODE_ENV === 'production') {
+      cookieOptions.domain = '.onrender.com'; // Make sure to include the leading dot
+    }
+    
+    res.cookie('oauth_state', state, cookieOptions);
+    
+    console.log('Setting cookie with options:', JSON.stringify(cookieOptions, null, 2));
     
     const authUrl = `https://github.com/login/oauth/authorize?client_id=${process.env.GITHUB_CLIENT_ID}&scope=user:email&state=${state}`;
-    console.log('Generated state:', state);
     console.log('Auth URL:', authUrl);
+    
+    // For debugging, also set a non-httpOnly cookie with same settings
+    const debugCookieOptions = { ...cookieOptions, httpOnly: false };
+    res.cookie('debug_state', state, debugCookieOptions);
+    
+    // Set a response header to help with debugging
+    res.setHeader('X-Debug-Auth-URL', authUrl);
+    res.setHeader('X-Debug-Cookie-Set', 'true');
+    
+    console.log('Cookies being set:', {
+      oauth_state: state,
+      debug_state: state
+    });
     
     // Redirect to GitHub for authorization
     res.redirect(authUrl);
@@ -104,29 +129,56 @@ app.get('/auth/github', (req, res) => {
 
 // GitHub OAuth callback endpoint
 app.get('/auth/github/callback', async (req, res) => {
+  console.log('=== /auth/github/callback ===');
   console.log('Received callback with query params:', req.query);
+  
   try {
     const { code, state: stateFromGitHub, error, error_description } = req.query;
     const stateFromCookie = req.cookies.oauth_state;
     
-    // Clear the state cookie immediately after reading it
-    res.clearCookie('oauth_state', {
-      path: '/auth/github/callback',
+    console.log('State from GitHub:', stateFromGitHub);
+    console.log('State from cookie:', stateFromCookie);
+    console.log('All cookies received:', req.cookies);
+    console.log('Request headers:', req.headers);
+    
+    // Clear the state cookie with same options used to set it
+    const clearOptions = {
+      path: '/',
       httpOnly: true,
-      secure: process.env.NODE_ENV === 'production'
-    });
+      secure: process.env.NODE_ENV === 'production',
+    };
+    
+    if (process.env.NODE_ENV === 'production') {
+      clearOptions.domain = '.onrender.com';
+    }
+    
+    res.clearCookie('oauth_state', clearOptions);
+    res.clearCookie('debug_state', { ...clearOptions, httpOnly: false });
+    
+    console.log('Clearing cookies with options:', JSON.stringify(clearOptions, null, 2));
     
     // Verify state parameter to prevent CSRF attacks
     if (!stateFromGitHub || !stateFromCookie || stateFromGitHub !== stateFromCookie) {
-      console.error('Invalid state parameter in OAuth callback', {
+      console.error('State validation failed', {
+        reason: !stateFromGitHub ? 'No state from GitHub' : 
+               !stateFromCookie ? 'No state cookie found' :
+               'State mismatch',
         stateFromGitHub,
         stateFromCookie,
-        cookies: req.cookies
+        allCookies: req.cookies,
+        headers: req.headers
       });
+      
       return res.status(400).json({
         success: false,
         error: 'Invalid state parameter',
-        message: 'Authentication failed due to invalid state parameter.'
+        message: 'Authentication failed due to invalid state parameter.',
+        debug: {
+          receivedState: stateFromGitHub,
+          expectedState: stateFromCookie,
+          hasStateCookie: !!stateFromCookie,
+          cookieKeys: Object.keys(req.cookies || {})
+        }
       });
     }
     
