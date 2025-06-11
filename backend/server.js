@@ -358,27 +358,13 @@ app.use((req, res) => {
 // Frontend is hosted separately on Vercel
 console.log('Frontend is hosted separately on Vercel');
 
-// Log all registered routes for debugging
-console.log('Registered API routes:');
-
-// Safely log routes only if _router is available
-if (app._router && app._router.stack) {
-  app._router.stack.forEach((middleware) => {
-    if (middleware.route) {
-      // Routes registered directly on the app
-      console.log(`- ${Object.keys(middleware.route.methods).join(', ').toUpperCase()} ${middleware.route.path}`);
-    } else if (middleware.name === 'router' && middleware.handle && middleware.handle.stack) {
-      // Routes added as router
-      middleware.handle.stack.forEach((handler) => {
-        if (handler && handler.route) {
-          console.log(`- ${Object.keys(handler.route.methods).join(', ').toUpperCase()} ${handler.route.path}`);
-        }
-      });
-    }
-  });
-} else {
-  console.log('No routes found or router not initialized yet');
-}
+// Log basic server info
+console.log('Server started successfully');
+console.log('Available routes:');
+console.log('- GET    /health');
+console.log('- GET    /');
+console.log('- GET    /auth/github/callback');
+console.log('- POST   /api/auth/github/token');
 
 // Start server
 app.listen(PORT, () => {
