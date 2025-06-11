@@ -34,23 +34,26 @@ const allowedOrigins = [
   'https://repo-analyzer-2ra5.vercel.app'
 ];
 
-// Configure CORS with credentials support
+// Configure CORS with credentials
 const corsOptions = {
-  origin: function(origin, callback) {
-    // Allow requests with no origin (like mobile apps, curl, etc.)
-    if (!origin) return callback(null, true);
-    
-    if (allowedOrigins.includes(origin)) {
+  origin: function (origin, callback) {
+    // In development, allow all origins for easier testing
+    if (process.env.NODE_ENV !== 'production') {
       return callback(null, true);
     }
     
-    const msg = `The CORS policy for this site does not allow access from the specified origin: ${origin}`;
-    console.warn(msg);
-    return callback(new Error(msg), false);
+    // In production, only allow specific origins
+    if (allowedOrigins.includes(origin) || !origin) {
+      callback(null, true);
+    } else {
+      console.warn(`Blocked request from unauthorized origin: ${origin}`);
+      callback(new Error(`The CORS policy for this site does not allow access from the specified origin: ${origin}`), false);
+    }
   },
+  credentials: true,
   methods: ['GET', 'POST', 'OPTIONS'],
-  allowedHeaders: ['Content-Type', 'Authorization'],
-  credentials: true
+  allowedHeaders: ['Origin', 'X-Requested-With', 'Content-Type', 'Accept', 'Authorization'],
+  exposedHeaders: ['Set-Cookie', 'Date', 'ETag']
 };
 
 // Apply middleware
@@ -85,19 +88,23 @@ app.get('/auth/github', (req, res) => {
     console.log('Generated state:', state);
     console.log('Request headers:', req.headers);
     
-    // Set state in HTTP-only cookie with root path
+    // Set state in HTTP-only cookie with appropriate settings for the environment
+    const isProduction = process.env.NODE_ENV === 'production';
     const cookieOptions = {
       httpOnly: true,
-      secure: process.env.NODE_ENV === 'production',
-      sameSite: process.env.NODE_ENV === 'production' ? 'none' : 'lax',
+      secure: isProduction, // true in production, false in development
+      sameSite: isProduction ? 'none' : 'lax', // 'none' in production, 'lax' in development
       maxAge: 10 * 60 * 1000, // 10 minutes
-      path: '/', // Set to root path to ensure it's sent to all paths
+      path: '/', // Available on all paths
     };
     
     // Only set domain in production
-    if (process.env.NODE_ENV === 'production') {
-      cookieOptions.domain = '.onrender.com'; // Make sure to include the leading dot
+    if (isProduction) {
+      cookieOptions.domain = '.onrender.com';
     }
+    
+    console.log('Environment:', process.env.NODE_ENV);
+    console.log('Cookie options:', JSON.stringify(cookieOptions, null, 2));
     
     res.cookie('oauth_state', state, cookieOptions);
     
@@ -145,10 +152,10 @@ app.get('/auth/github/callback', async (req, res) => {
     const clearOptions = {
       path: '/',
       httpOnly: true,
-      secure: process.env.NODE_ENV === 'production',
+      secure: isProduction,
     };
     
-    if (process.env.NODE_ENV === 'production') {
+    if (isProduction) {
       clearOptions.domain = '.onrender.com';
     }
     
