@@ -69,64 +69,32 @@ app.get('/', (req, res) => {
   res.json({ status: 'Server is running' });
 });
 
-// Generate and store state for CSRF protection
+// Generate a random state string
 function generateState() {
-  const state = crypto.randomBytes(16).toString('hex');
-  stateStore.set(state, { 
-    timestamp: Date.now(),
-    used: false
-  });
-  // Clean up old states (older than 10 minutes)
-  const now = Date.now();
-  for (const [st, data] of stateStore.entries()) {
-    if (now - data.timestamp > 10 * 60 * 1000) { // 10 minutes
-      stateStore.delete(st);
-    }
-  }
-  console.log('Current state store:', [...stateStore.keys()]);
-  return state;
+  return crypto.randomBytes(16).toString('hex');
 }
 
-function verifyState(state) {
-  console.log('Verifying state:', state);
-  console.log('Current states:', [...stateStore.keys()]);
-  
-  if (!state) {
-    console.error('No state provided for verification');
-    return false;
-  }
-  
-  const stateData = stateStore.get(state);
-  
-  if (!stateData) {
-    console.error('State not found in store:', state);
-    return false;
-  }
-  
-  if (stateData.used) {
-    console.error('State already used:', state);
-    return false;
-  }
-  
-  // Mark state as used
-  stateStore.set(state, { ...stateData, used: true });
-  
-  // Don't delete immediately to handle race conditions
-  setTimeout(() => {
-    stateStore.delete(state);
-  }, 60000); // Delete after 1 minute
-  
-  return true;
-}
+// No need for verifyState function anymore as we'll use cookies
 
 // GitHub OAuth login endpoint
 app.get('/auth/github', (req, res) => {
   try {
     const state = generateState();
+    
+    // Set state in HTTP-only cookie
+    res.cookie('oauth_state', state, {
+      httpOnly: true,
+      secure: process.env.NODE_ENV === 'production',
+      sameSite: 'lax',
+      maxAge: 10 * 60 * 1000, // 10 minutes
+      path: '/auth/github/callback' // Only send this cookie to the callback endpoint
+    });
+    
     const authUrl = `https://github.com/login/oauth/authorize?client_id=${process.env.GITHUB_CLIENT_ID}&scope=user:email&state=${state}`;
     console.log('Generated state:', state);
     console.log('Auth URL:', authUrl);
-    // Send the auth URL directly for redirect
+    
+    // Redirect to GitHub for authorization
     res.redirect(authUrl);
   } catch (error) {
     console.error('Error generating auth URL:', error);
@@ -138,11 +106,23 @@ app.get('/auth/github', (req, res) => {
 app.get('/auth/github/callback', async (req, res) => {
   console.log('Received callback with query params:', req.query);
   try {
-    const { code, state, error, error_description } = req.query;
+    const { code, state: stateFromGitHub, error, error_description } = req.query;
+    const stateFromCookie = req.cookies.oauth_state;
+    
+    // Clear the state cookie immediately after reading it
+    res.clearCookie('oauth_state', {
+      path: '/auth/github/callback',
+      httpOnly: true,
+      secure: process.env.NODE_ENV === 'production'
+    });
     
     // Verify state parameter to prevent CSRF attacks
-    if (!state || !verifyState(state)) {
-      console.error('Invalid state parameter in OAuth callback');
+    if (!stateFromGitHub || !stateFromCookie || stateFromGitHub !== stateFromCookie) {
+      console.error('Invalid state parameter in OAuth callback', {
+        stateFromGitHub,
+        stateFromCookie,
+        cookies: req.cookies
+      });
       return res.status(400).json({
         success: false,
         error: 'Invalid state parameter',
