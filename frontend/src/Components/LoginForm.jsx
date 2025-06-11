@@ -12,13 +12,26 @@ const LoginForm = () => {
   const [isLoading, setIsLoading] = useState(false);
   const navigate = useNavigate();
   
-  const handleGitHubLogin = (e) => {
+  const handleGitHubLogin = async (e) => {
     e.preventDefault();
-    console.log('=== GitHub Login Button Clicked ===');
-    console.log('Client ID:', import.meta.env.VITE_GITHUB_CLIENT_ID);
-    console.log('Callback URL:', import.meta.env.VITE_GITHUB_CALLBACK_URL);
-    console.log('Initiating GitHub login...');
-    loginWithGitHub();
+    setIsLoading(true);
+    setError('');
+    
+    try {
+      console.log('=== GitHub Login Button Clicked ===');
+      const clientId = import.meta.env.VITE_GITHUB_CLIENT_ID;
+      const callbackUrl = encodeURIComponent(import.meta.env.VITE_GITHUB_CALLBACK_URL);
+      const scope = encodeURIComponent('user:email');
+      
+      console.log('OAuth Parameters:', { clientId, callbackUrl });
+      
+      // Redirect to GitHub OAuth
+      window.location.href = `https://github.com/login/oauth/authorize?client_id=${clientId}&redirect_uri=${callbackUrl}&scope=${scope}`;
+    } catch (err) {
+      console.error('GitHub login error:', err);
+      setError('Failed to initiate GitHub login. Please try again.');
+      setIsLoading(false);
+    }
   };
   
   const handleAdminLogin = async (e) => {
