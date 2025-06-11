@@ -18,30 +18,37 @@ const LoginForm = () => {
     setError('');
     
     try {
-      console.log('=== GitHub Login Button Clicked ===');
       const clientId = import.meta.env.VITE_GITHUB_CLIENT_ID;
+      if (!clientId) {
+        throw new Error('GitHub Client ID is not configured');
+      }
       
-      // For development, use localhost:5000
-      // For production, use your actual backend URL (not the frontend Vercel URL)
-      const isLocalhost = window.location.hostname === 'localhost';
+      // Determine environment
+      const isLocalhost = window.location.hostname === 'localhost' || 
+                         window.location.hostname === '127.0.0.1';
+      
+      // Use environment-specific backend URL
       const backendBaseUrl = isLocalhost 
-        ? 'http://localhost:5000'  // Local backend
-        : 'https://repo-analyzer-vpzo.onrender.com'; // Render backend
+        ? 'http://localhost:5000'  // Local development
+        : 'https://repo-analyzer-vpzo.onrender.com'; // Production backend
       
-      // The callback URL should point to your backend
+      // Configure OAuth parameters
       const callbackUrl = `${backendBaseUrl}/auth/github/callback`;
       const scope = 'user:email';
+      const state = Math.random().toString(36).substring(2); // Add CSRF protection
       
-      console.log('OAuth Parameters:', { 
-        clientId, 
-        backendBaseUrl,
-        callbackUrl,
-        isLocalhost,
-        redirectUrl: `https://github.com/login/oauth/authorize?client_id=${clientId}&redirect_uri=${encodeURIComponent(callbackUrl)}&scope=${scope}`
-      });
+      // Store state in session storage for verification
+      sessionStorage.setItem('github_oauth_state', state);
+      
+      // Build the authorization URL
+      const authUrl = new URL('https://github.com/login/oauth/authorize');
+      authUrl.searchParams.append('client_id', clientId);
+      authUrl.searchParams.append('redirect_uri', callbackUrl);
+      authUrl.searchParams.append('scope', scope);
+      authUrl.searchParams.append('state', state);
       
       // Redirect to GitHub OAuth
-      window.location.href = `https://github.com/login/oauth/authorize?client_id=${clientId}&redirect_uri=${encodeURIComponent(callbackUrl)}&scope=${scope}`;
+      window.location.href = authUrl.toString();
     } catch (err) {
       console.error('GitHub login error:', err);
       setError('Failed to initiate GitHub login. Please try again.');

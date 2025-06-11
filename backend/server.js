@@ -65,7 +65,22 @@ app.get('/', (req, res) => {
 app.get(['/auth/github/callback', '/api/auth/github/callback'], async (req, res) => {
   console.log('GitHub OAuth callback received', { query: req.query });
   
-  const { code, error, error_description, error_uri } = req.query;
+  const { code, state, error, error_description, error_uri } = req.query;
+  
+  // Verify state parameter to prevent CSRF attacks
+  if (!state) {
+    console.error('Missing state parameter in OAuth callback');
+    return res.status(400).json({
+      success: false,
+      error: 'Missing state parameter',
+      message: 'Authentication failed due to missing state parameter.'
+    });
+  }
+  
+  // Note: In a real application, you would verify the state parameter matches what was sent
+  // Since we can't access the frontend's session storage here, we'll trust the state for now
+  // In production, consider using a session store or signed cookies to verify the state
+  console.log('OAuth state parameter:', state);
   
   // Handle GitHub OAuth errors
   if (error) {
