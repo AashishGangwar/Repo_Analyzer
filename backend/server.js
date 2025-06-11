@@ -72,7 +72,10 @@ app.get('/', (req, res) => {
 // Generate and store state for CSRF protection
 function generateState() {
   const state = crypto.randomBytes(16).toString('hex');
-  stateStore.set(state, { timestamp: Date.now() });
+  stateStore.set(state, { 
+    timestamp: Date.now(),
+    used: false
+  });
   // Clean up old states (older than 10 minutes)
   const now = Date.now();
   for (const [st, data] of stateStore.entries()) {
@@ -80,13 +83,39 @@ function generateState() {
       stateStore.delete(st);
     }
   }
+  console.log('Current state store:', [...stateStore.keys()]);
   return state;
 }
 
 function verifyState(state) {
+  console.log('Verifying state:', state);
+  console.log('Current states:', [...stateStore.keys()]);
+  
+  if (!state) {
+    console.error('No state provided for verification');
+    return false;
+  }
+  
   const stateData = stateStore.get(state);
-  if (!stateData) return false;
-  stateStore.delete(state); // State should be used once
+  
+  if (!stateData) {
+    console.error('State not found in store:', state);
+    return false;
+  }
+  
+  if (stateData.used) {
+    console.error('State already used:', state);
+    return false;
+  }
+  
+  // Mark state as used
+  stateStore.set(state, { ...stateData, used: true });
+  
+  // Don't delete immediately to handle race conditions
+  setTimeout(() => {
+    stateStore.delete(state);
+  }, 60000); // Delete after 1 minute
+  
   return true;
 }
 
@@ -95,15 +124,19 @@ app.get('/auth/github', (req, res) => {
   try {
     const state = generateState();
     const authUrl = `https://github.com/login/oauth/authorize?client_id=${process.env.GITHUB_CLIENT_ID}&scope=user:email&state=${state}`;
-    res.json({ authUrl });
+    console.log('Generated state:', state);
+    console.log('Auth URL:', authUrl);
+    // Send the auth URL directly for redirect
+    res.redirect(authUrl);
   } catch (error) {
     console.error('Error generating auth URL:', error);
-    res.status(500).json({ error: 'Failed to generate authentication URL' });
+    res.status(500).json({ error: 'Failed to generate authentication URL', details: error.message });
   }
 });
 
 // GitHub OAuth callback endpoint
 app.get('/auth/github/callback', async (req, res) => {
+  console.log('Received callback with query params:', req.query);
   try {
     const { code, state, error, error_description } = req.query;
     
