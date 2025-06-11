@@ -151,162 +151,164 @@ app.get('/auth/github', (req, res) => {
 });
 
 // GitHub OAuth callback endpoint
+// Helper function to create frontend redirect URL
+function createFrontendUrl(path = '/login', params = {}) {
+  const url = new URL(process.env.FRONTEND_URL || 'https://repo-analyzer-2ra5.vercel.app');
+  url.pathname = path;
+  Object.entries(params).forEach(([key, value]) => {
+    url.searchParams.set(key, value);
+  });
+  return url;
+}
+
+// GitHub OAuth callback endpoint
 app.get('/auth/github/callback', async (req, res) => {
   console.log('=== /auth/github/callback ===');
   console.log('Received callback with query params:', req.query);
   
+  const { code, state: stateFromGitHub, error, error_description } = req.query;
+  const stateFromCookie = req.cookies.oauth_state;
   const cookieOptions = getCookieOptions();
   
+  // Clear the state cookie immediately after reading it
+  res.clearCookie('oauth_state', { 
+    ...cookieOptions,
+    maxAge: 0 // Expire immediately
+  });
+  
+  // Log state for debugging
+  console.log('State validation:', { stateFromGitHub, stateFromCookie });
+  
+  // Check for OAuth errors
+  if (error) {
+    console.error('GitHub OAuth error:', { error, error_description });
+    const redirectUrl = createFrontendUrl('/login', { error: error_description || error });
+    return res.redirect(redirectUrl.toString());
+  }
+  
+  // Verify state parameter to prevent CSRF
+  if (!stateFromCookie || stateFromGitHub !== stateFromCookie) {
+    console.error('State mismatch - possible CSRF attack or expired session', { 
+      stateFromGitHub, 
+      stateFromCookie 
+    });
+    const redirectUrl = createFrontendUrl('/login', { error: 'state_mismatch' });
+    return res.redirect(redirectUrl.toString());
+  }
+  
+  if (!code) {
+    console.error('No authorization code received');
+    const redirectUrl = createFrontendUrl('/login', { error: 'no_code' });
+    return res.redirect(redirectUrl.toString());
+  }
+
   try {
-    const { code, state: stateFromGitHub, error, error_description } = req.query;
-    const stateFromCookie = req.cookies.oauth_state;
-    
-    console.log('State from GitHub:', stateFromGitHub);
-    console.log('State from cookie:', stateFromCookie);
-    
-    // Clear the state cookie immediately after reading it
-    res.clearCookie('oauth_state', { 
-      ...cookieOptions,
-      maxAge: 0 // Expire immediately
-    });
-    
-    // Check for OAuth errors
-    if (error) {
-      console.error('GitHub OAuth error:', { error, error_description });
-      const frontendUrl = new URL(process.env.FRONTEND_URL || 'https://repo-analyzer-2ra5.vercel.app');
-      frontendUrl.pathname = '/login';
-      frontendUrl.searchParams.set('error', error_description || error);
-      return res.redirect(frontendUrl.toString());
-    }
-    
-    if (!code) {
-      console.error('No authorization code received');
-      const frontendUrl = new URL(process.env.FRONTEND_URL || 'https://repo-analyzer-2ra5.vercel.app');
-      frontendUrl.pathname = '/login';
-      frontendUrl.searchParams.set('error', 'no_code');
-      return res.redirect(frontendUrl.toString());
-    }
-
     console.log('Exchanging authorization code for access token...');
-
-    try {
-      // Exchange code for access token
-      const tokenResponse = await axios.post(
-        'https://github.com/login/oauth/access_token',
-        {
-          client_id: process.env.GITHUB_CLIENT_ID,
-          client_secret: process.env.GITHUB_CLIENT_SECRET,
-          code,
-          redirect_uri: `${process.env.BACKEND_URL || 'https://repo-analyzer-vpzo.onrender.com'}/auth/github/callback`,
-          state: stateFromGitHub
-        },
-        {
-          headers: {
-            'Accept': 'application/json',
-            'Content-Type': 'application/json'
-          }
-        }
-      );
-
-      if (tokenResponse.data.error) {
-        console.error('GitHub token exchange error:', tokenResponse.data);
-        throw new Error(tokenResponse.data.error_description || 'Failed to exchange code for token');
-      }
-
-      const { access_token: accessToken } = tokenResponse.data;
-      
-      if (!accessToken) {
-        throw new Error('No access token received from GitHub');
-      }
     
-    try {
-      // Get user data from GitHub
-      const [userResponse, emailsResponse] = await Promise.all([
-        axios.get('https://api.github.com/user', {
-          headers: {
-            'Authorization': `token ${accessToken}`,
-            'Accept': 'application/vnd.github.v3+json'
-          }
-        }),
-        axios.get('https://api.github.com/user/emails', {
-          headers: {
-            'Authorization': `token ${accessToken}`,
-            'Accept': 'application/vnd.github.v3+json'
-          }
-        })
-      ]);
+    // Exchange code for access token
+    const tokenResponse = await axios.post(
+      'https://github.com/login/oauth/access_token',
+      {
+        client_id: process.env.GITHUB_CLIENT_ID,
+        client_secret: process.env.GITHUB_CLIENT_SECRET,
+        code,
+        redirect_uri: `${process.env.BACKEND_URL || 'https://repo-analyzer-vpzo.onrender.com'}/auth/github/callback`,
+        state: stateFromGitHub
+      },
+      {
+        headers: {
+          'Accept': 'application/json',
+          'Content-Type': 'application/json'
+        }
+      }
+    );
 
-      const primaryEmail = emailsResponse.data.find(email => email.primary)?.email || '';
-      
-      // Set the access token in an HTTP-only cookie
-      const cookieOptions = getCookieOptions();
-      
-      // Set the GitHub token in a secure, HTTP-only cookie
-      res.cookie('github_token', accessToken, {
-        ...cookieOptions,
-        httpOnly: true,
-        maxAge: 23 * 60 * 60 * 1000, // 23 hours
-        path: '/'
-      });
-      
-      // Create user data object
-      const userData = {
-        id: userResponse.data.id,
-        login: userResponse.data.login,
-        name: userResponse.data.name,
-        email: primaryEmail,
-        avatar_url: userResponse.data.avatar_url
-      };
-      
-      // Set user data in a non-HTTP-only cookie for client-side access
-      res.cookie('user_data', JSON.stringify(userData), {
-        ...cookieOptions,
-        httpOnly: false,
-        maxAge: 23 * 60 * 60 * 1000, // 23 hours
-        path: '/'
-      });
-      
-      // Set a session cookie
-      res.cookie('is_authenticated', 'true', {
-        ...cookieOptions,
-        httpOnly: false,
-        maxAge: 23 * 60 * 60 * 1000, // 23 hours
-        path: '/'
-      });
-      
-      // Log successful authentication
-      console.log('User authenticated successfully:', {
-        userId: userResponse.data.id,
-        login: userResponse.data.login,
-        email: primaryEmail
-      });
-      
-      // Redirect to the frontend with success status
-      const frontendUrl = new URL(process.env.FRONTEND_URL || 'https://repo-analyzer-2ra5.vercel.app');
-      frontendUrl.pathname = '/dashboard'; // Redirect to dashboard after login
-      return res.redirect(frontendUrl.toString());
-      
-    } catch (error) {
-      console.error('Error fetching user data from GitHub:', {
-        message: error.message,
-        status: error.response?.status,
-        data: error.response?.data
-      });
-      throw new Error('Failed to fetch user data from GitHub');
+    if (tokenResponse.data.error) {
+      console.error('GitHub token exchange error:', tokenResponse.data);
+      throw new Error(tokenResponse.data.error_description || 'Failed to exchange code for token');
     }
-  } catch (error) {
-    console.error('Error in GitHub OAuth callback:', {
-      message: error.message,
-      stack: error.stack,
-      code: error.code,
-      response: error.response?.data
+
+    const { access_token: accessToken } = tokenResponse.data;
+    
+    if (!accessToken) {
+      throw new Error('No access token received from GitHub');
+    }
+    
+    // Get user data from GitHub
+    const [userResponse, emailsResponse] = await Promise.all([
+      axios.get('https://api.github.com/user', {
+        headers: {
+          'Authorization': `token ${accessToken}`,
+          'Accept': 'application/vnd.github.v3+json'
+        }
+      }),
+      axios.get('https://api.github.com/user/emails', {
+        headers: {
+          'Authorization': `token ${accessToken}`,
+          'Accept': 'application/vnd.github.v3+json'
+        }
+      })
+    ]);
+
+    const primaryEmail = emailsResponse.data.find(email => email.primary)?.email || '';
+    
+    // Create user data object
+    const userData = {
+      id: userResponse.data.id,
+      login: userResponse.data.login,
+      name: userResponse.data.name,
+      email: primaryEmail,
+      avatar_url: userResponse.data.avatar_url
+    };
+    
+    // Set the GitHub token in a secure, HTTP-only cookie
+    res.cookie('github_token', accessToken, {
+      ...cookieOptions,
+      httpOnly: true,
+      maxAge: 23 * 60 * 60 * 1000, // 23 hours
+      path: '/'
     });
     
-    // Redirect to frontend with error
-    const frontendUrl = new URL(process.env.FRONTEND_URL || 'https://repo-analyzer-2ra5.vercel.app');
-    frontendUrl.pathname = '/login';
-    frontendUrl.searchParams.set('error', 'auth_error');
-    res.redirect(frontendUrl.toString());
+    // Set user data in a non-HTTP-only cookie for client-side access
+    res.cookie('user_data', JSON.stringify(userData), {
+      ...cookieOptions,
+      httpOnly: false,
+      maxAge: 23 * 60 * 60 * 1000, // 23 hours
+      path: '/'
+    });
+    
+    // Set a session cookie
+    res.cookie('is_authenticated', 'true', {
+      ...cookieOptions,
+      httpOnly: false,
+      maxAge: 23 * 60 * 60 * 1000, // 23 hours
+      path: '/'
+    });
+    
+    // Log successful authentication
+    console.log('User authenticated successfully:', {
+      userId: userResponse.data.id,
+      login: userResponse.data.login,
+      email: primaryEmail
+    });
+    
+    // Redirect to dashboard after successful login
+    const redirectUrl = createFrontendUrl('/dashboard');
+    return res.redirect(redirectUrl.toString());
+    
+  } catch (error) {
+    console.error('OAuth flow error:', {
+      message: error.message,
+      status: error.response?.status,
+      data: error.response?.data,
+      stack: process.env.NODE_ENV === 'development' ? error.stack : undefined
+    });
+    
+    const redirectUrl = createFrontendUrl('/login', { 
+      error: 'auth_error',
+      message: error.message
+    });
+    return res.redirect(redirectUrl.toString());
   }
 });
 
