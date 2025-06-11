@@ -28,33 +28,60 @@ if (!process.env.GITHUB_CLIENT_ID || !process.env.GITHUB_CLIENT_SECRET) {
   process.exit(1);
 }
 
-// Configure CORS with allowed origins
+// Configure CORS configuration
+const isProduction = process.env.NODE_ENV === 'production';
+const frontendUrl = process.env.FRONTEND_URL || 'http://localhost:5173';
+
+// If in production, ensure FRONTEND_URL is set
+if (isProduction && !process.env.FRONTEND_URL) {
+  console.warn('WARNING: FRONTEND_URL environment variable is not set in production');
+}
+
 const allowedOrigins = [
   'http://localhost:5173',
   'https://repo-analyzer-2ra5.vercel.app'
 ];
 
-// Configure CORS with credentials
+// Add frontend URL to allowed origins if not already present
+if (frontendUrl && !allowedOrigins.includes(frontendUrl)) {
+  allowedOrigins.push(frontendUrl);
+}
+
+// Add localhost for development
+if (!isProduction) {
+  allowedOrigins.push('http://localhost:5173', 'http://127.0.0.1:5173');
+}
+
 const corsOptions = {
   origin: function (origin, callback) {
-    // In development, allow all origins for easier testing
-    if (process.env.NODE_ENV !== 'production') {
+    // Allow requests with no origin (like mobile apps or curl requests)
+    if (!origin && !isProduction) {
       return callback(null, true);
     }
     
-    // In production, only allow specific origins
+    // Check if the origin is allowed
     if (allowedOrigins.includes(origin) || !origin) {
       callback(null, true);
     } else {
       console.warn(`Blocked request from unauthorized origin: ${origin}`);
+      console.log('Allowed origins:', allowedOrigins);
       callback(new Error(`The CORS policy for this site does not allow access from the specified origin: ${origin}`), false);
     }
   },
   credentials: true,
-  methods: ['GET', 'POST', 'OPTIONS'],
-  allowedHeaders: ['Origin', 'X-Requested-With', 'Content-Type', 'Accept', 'Authorization'],
-  exposedHeaders: ['Set-Cookie', 'Date', 'ETag']
+  methods: ['GET', 'POST', 'OPTIONS', 'PUT', 'DELETE'],
+  allowedHeaders: ['Origin', 'X-Requested-With', 'Content-Type', 'Accept', 'Authorization', 'X-CSRF-Token'],
+  exposedHeaders: ['Set-Cookie', 'Date', 'ETag', 'Authorization'],
+  maxAge: 86400 // 24 hours
 };
+
+// Log CORS configuration
+console.log('CORS Configuration:', {
+  isProduction,
+  frontendUrl,
+  allowedOrigins,
+  nodeEnv: process.env.NODE_ENV
+});
 
 // Apply middleware
 app.use(express.json());
@@ -254,15 +281,24 @@ app.get('/auth/github/callback', async (req, res) => {
     // Set the access token in an HTTP-only cookie
     const cookieOptions = {
       httpOnly: true,
-      secure: process.env.NODE_ENV === 'production',
-      sameSite: process.env.NODE_ENV === 'production' ? 'none' : 'lax',
+      secure: isProduction, // true in production, false in development
+      sameSite: isProduction ? 'none' : 'lax', // Required for cross-site cookies
       maxAge: 24 * 60 * 60 * 1000, // 1 day
       path: '/',
     };
     
-    if (process.env.NODE_ENV === 'production') {
+    // In production, set the domain for cross-subdomain cookies
+    if (isProduction) {
       cookieOptions.domain = '.onrender.com';
     }
+    
+    console.log('Setting cookie with options:', {
+      ...cookieOptions,
+      // Don't log the actual token
+      value: '***REDACTED***',
+      // Show if domain is set
+      domainSet: !!cookieOptions.domain
+    });
     
     // Set the token in a cookie
     res.cookie('github_token', accessToken, cookieOptions);

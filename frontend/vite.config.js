@@ -16,6 +16,12 @@ export default defineConfig({
         secure: false,
         rewrite: (path) => path.replace(/^\/api/, '')
       },
+      // Proxy OAuth requests to backend
+      '/auth': {
+        target: 'http://localhost:5000',
+        changeOrigin: true,
+        secure: false
+      },
       // Proxy GitHub API requests
       '/github': {
         target: 'https://github.com',
