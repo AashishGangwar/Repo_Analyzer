@@ -384,7 +384,7 @@ app.get('/auth/github/callback', async (req, res) => {
     // Redirect to frontend with tokens as URL parameters
     // Using the frontend's callback route
     const frontendUrl = process.env.FRONTEND_URL || 'https://repo-analyzer-2ra5.vercel.app';
-    const redirectUrl = new URL('/auth/callback', frontendUrl);
+    const redirectUrl = new URL('/callback', frontendUrl);
     
     // Add token and user data as URL parameters
     redirectUrl.searchParams.append('token', token);
