@@ -328,7 +328,76 @@ export const AuthProvider = ({ children }) => {
     }
   };
 
-  // Handle GitHub OAuth callback
+  // Handle the OAuth callback from the backend
+  const handleAuthCallback = async ({ token, user, state }) => {
+    console.log('=== Handling Auth Callback ===');
+    console.log('Received auth data:', { user, state });
+    
+    try {
+      setLoading(true);
+      
+      // Verify state to prevent CSRF
+      const savedState = sessionStorage.getItem('github_oauth_state') || 
+                      localStorage.getItem('github_oauth_state');
+      
+      console.log('State verification:', {
+        savedState: savedState ? '✅ Present' : '❌ Missing',
+        receivedState: state || '❌ Missing',
+        stateMatch: savedState === state ? '✅ Valid' : '❌ Mismatch'
+      });
+      
+      // Clean up the state regardless of the result
+      sessionStorage.removeItem('github_oauth_state');
+      localStorage.removeItem('github_oauth_state');
+      
+      if (!savedState || savedState !== state) {
+        const error = 'State mismatch. Possible CSRF attack or expired session.';
+        console.error('❌ Security Error:', error);
+        throw new Error('Session expired. Please try logging in again.');
+      }
+      
+      if (!user || !token) {
+        throw new Error('Incomplete authentication data');
+      }
+      
+      // Save user data to localStorage
+      const userData = {
+        ...user,
+        accessToken: token
+      };
+      
+      localStorage.setItem('user', JSON.stringify(userData));
+      setUser(userData);
+      setIsAuthenticated(true);
+      setIsAdmin(false);
+      
+      // Update analytics
+      setAnalytics(prev => ({
+        ...prev,
+        totalLogins: (prev.totalLogins || 0) + 1,
+        userLogs: [
+          ...(prev.userLogs || []),
+          {
+            username: user.login || 'unknown',
+            action: 'github_login',
+            time: new Date().toISOString(),
+            source: 'github'
+          }
+        ].slice(-50)
+      }));
+      
+      console.log('✅ Authentication successful');
+      return userData;
+      
+    } catch (error) {
+      console.error('Error in handleAuthCallback:', error);
+      throw error;
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  // Handle GitHub OAuth callback (legacy, can be removed after migration)
   const handleGitHubCallback = async (code, state) => {
     console.log('=== GitHub OAuth Callback Debug ===');
     console.log('Starting OAuth callback with code and state');
