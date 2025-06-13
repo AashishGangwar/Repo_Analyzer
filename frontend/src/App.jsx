@@ -7,6 +7,7 @@ import SimpleAnalyze from './Pages/SimpleAnalyze';
 import AuthTest from './Pages/AuthTest';
 import AdminLogin from './Pages/AdminLogin';
 import AdminDashboard from './Pages/AdminDashboard';
+import Dashboard from './Pages/Dashboard';
 
 // Protected Route component
 const ProtectedRoute = ({ children, adminOnly = false }) => {
@@ -42,6 +43,16 @@ function AppContent() {
     <div style={{ minHeight: '100vh', backgroundColor: '#0f172a' }}>
       <Routes>
         <Route path="/login" element={<Login />} />
+        
+        {/* Protected User Dashboard */}
+        <Route 
+          path="/dashboard" 
+          element={
+            <ProtectedRoute>
+              <Dashboard />
+            </ProtectedRoute>
+          } 
+        />
         
         {/* Admin Routes */}
         <Route path="/admin">
