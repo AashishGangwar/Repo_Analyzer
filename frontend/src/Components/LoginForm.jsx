@@ -34,14 +34,13 @@ const LoginForm = () => {
       // Generate a random state parameter
       const state = Math.random().toString(36).substring(2);
       
-      // Store state in session storage
-      sessionStorage.setItem('oauth_state', state);
+      // Store state in both session and local storage for redundancy
+      sessionStorage.setItem('github_oauth_state', state);
+      localStorage.setItem('github_oauth_state', state);
       
-      // Set the correct client ID and redirect URI based on environment
-      const clientId = 'Ov23liA914N4ENADI5iu'; // Replace with your actual GitHub Client ID
-      const redirectUri = window.location.hostname === 'localhost' 
-        ? 'http://localhost:5000/auth/github/callback' 
-        : 'https://repo-analyzer-vpzo.onrender.com/auth/github/callback';
+      // Always use the production callback URL to match GitHub app settings
+      const clientId = 'Ov23liA914N4ENADI5iu'; // Your GitHub Client ID
+      const redirectUri = 'https://repo-analyzer-vpzo.onrender.com/auth/github/callback';
       
       // Build the OAuth URL
       const oauthUrl = `https://github.com/login/oauth/authorize?client_id=${clientId}&redirect_uri=${encodeURIComponent(redirectUri)}&state=${state}&scope=user:email,repo&allow_signup=false`;
