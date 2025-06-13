@@ -2,6 +2,7 @@ import { Routes, Route, Navigate, Outlet } from 'react-router-dom';
 import { AuthProvider, useAuth } from './contexts/AuthContext';
 import InputPage from './Pages/InputPage';
 import Login from './Pages/login';
+import AuthCallback from './Pages/AuthCallback';
 import AnalyzePage from './Pages/AnalyzeEnhanced';
 import SimpleAnalyze from './Pages/SimpleAnalyze';
 import AuthTest from './Pages/AuthTest';
