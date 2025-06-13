@@ -1,6 +1,12 @@
-import { useEffect } from 'react';
+import { useEffect, useRef } from 'react';
 import { useNavigate, useSearchParams, useLocation } from 'react-router-dom';
 import { useAuth } from '../contexts/AuthContext';
+
+// Helper to clean up URL after successful auth
+const cleanUrl = () => {
+  const cleanUri = window.location.origin + window.location.pathname;
+  window.history.replaceState({}, document.title, cleanUri);
+};
 
 export default function AuthCallback() {
   const [searchParams] = useSearchParams();
@@ -8,8 +14,14 @@ export default function AuthCallback() {
   const location = useLocation();
   const { handleAuthCallback } = useAuth();
 
+  const hasProcessed = useRef(false);
+
   useEffect(() => {
     const processAuthCallback = async () => {
+      // Prevent multiple executions
+      if (hasProcessed.current) return;
+      hasProcessed.current = true;
+
       try {
         console.log('=== AuthCallback Mounted ===');
         console.log('URL Search Params:', Object.fromEntries([...searchParams]));
@@ -30,6 +42,7 @@ export default function AuthCallback() {
         if (error) {
           console.error('OAuth error from provider:', error);
           const errorDesc = searchParams.get('error_description') || 'Authentication failed';
+          cleanUrl();
           navigate('/login', { 
             state: { 
               error: `Authentication failed: ${error}`,
@@ -43,6 +56,7 @@ export default function AuthCallback() {
         // Validate required parameters
         if (!token || !userParam) {
           console.error('Missing required parameters:', { token: !!token, user: !!userParam });
+          cleanUrl();
           navigate('/login', { 
             state: { 
               error: 'Authentication incomplete',
@@ -75,14 +89,13 @@ export default function AuthCallback() {
         const from = location.state?.from?.pathname || '/';
         console.log('Authentication successful, redirecting to:', from);
         
-        // Clean up the URL
-        window.history.replaceState({}, document.title, window.location.pathname);
-        
-        // Redirect to the intended page
+        // Clean up the URL and redirect
+        cleanUrl();
         navigate(from, { replace: true });
         
       } catch (err) {
         console.error('Error in AuthCallback:', err);
+        cleanUrl();
         navigate('/login', { 
           state: { 
             error: 'Authentication Failed',

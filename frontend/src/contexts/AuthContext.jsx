@@ -330,46 +330,46 @@ export const AuthProvider = ({ children }) => {
 
   // Handle the OAuth callback from the backend
   const handleAuthCallback = async ({ token, user, state }) => {
-    console.log('=== Handling Auth Callback ===');
-    console.log('Received auth data:', { user, state });
-    
     try {
       setLoading(true);
-      
+      console.log('=== Handling Auth Callback ===');
+      console.log('Received auth data:', { user, state: state ? '***' : 'none' });
+
       // Verify state to prevent CSRF
-      const savedState = sessionStorage.getItem('github_oauth_state') || 
-                      localStorage.getItem('github_oauth_state');
-      
+      const savedState = sessionStorage.getItem('oauth_state');
       console.log('State verification:', {
         savedState: savedState ? '✅ Present' : '❌ Missing',
-        receivedState: state || '❌ Missing',
+        receivedState: state || 'none',
         stateMatch: savedState === state ? '✅ Valid' : '❌ Mismatch'
       });
-      
-      // Clean up the state regardless of the result
-      sessionStorage.removeItem('github_oauth_state');
-      localStorage.removeItem('github_oauth_state');
-      
-      if (!savedState || savedState !== state) {
-        const error = 'State mismatch. Possible CSRF attack or expired session.';
-        console.error('❌ Security Error:', error);
-        throw new Error('Session expired. Please try logging in again.');
+
+      // Only check state if it was provided (for backward compatibility)
+      if (state && (!savedState || savedState !== state)) {
+        // Clear state to prevent reuse
+        if (savedState) {
+          sessionStorage.removeItem('oauth_state');
+        }
+        throw new Error('Session expired or invalid state. Please try logging in again.');
       }
-      
-      if (!user || !token) {
-        throw new Error('Incomplete authentication data');
+
+      // Clear the state to prevent replay attacks
+      if (savedState) {
+        sessionStorage.removeItem('oauth_state');
       }
+
+      // Validate required user data
+      if (!user || !user.id) {
+        throw new Error('Invalid user data received from authentication provider');
+      }
+
+      // Store the token and user data
+      localStorage.setItem('token', token);
+      localStorage.setItem('user', JSON.stringify(user));
       
-      // Save user data to localStorage
-      const userData = {
-        ...user,
-        accessToken: token
-      };
-      
-      localStorage.setItem('user', JSON.stringify(userData));
-      setUser(userData);
+      // Update state
+      setUser(user);
+      setToken(token);
       setIsAuthenticated(true);
-      setIsAdmin(false);
       
       // Update analytics
       setAnalytics(prev => ({
@@ -386,11 +386,27 @@ export const AuthProvider = ({ children }) => {
         ].slice(-50)
       }));
       
+      // Initialize analytics if needed
+      if (window.analytics) {
+        window.analytics.identify(user.id, {
+          name: user.name,
+          email: user.email,
+          login: user.login,
+          avatar: user.avatar_url
+        });
+      }
+      
       console.log('✅ Authentication successful');
-      return userData;
+      return user;
       
     } catch (error) {
       console.error('Error in handleAuthCallback:', error);
+      // Clear any partial auth state on error
+      localStorage.removeItem('token');
+      localStorage.removeItem('user');
+      setUser(null);
+      setToken(null);
+      setIsAuthenticated(false);
       throw error;
     } finally {
       setLoading(false);
