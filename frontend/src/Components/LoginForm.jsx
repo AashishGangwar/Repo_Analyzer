@@ -39,7 +39,7 @@ const LoginForm = () => {
       
       // Build the OAuth URL
       const params = new URLSearchParams({
-        client_id: 'YOUR_GITHUB_CLIENT_ID', // Replace with your GitHub Client ID
+        client_id: process.env.REACT_APP_GITHUB_CLIENT_ID || 'YOUR_GITHUB_CLIENT_ID',
         redirect_uri: 'https://repo-analyzer-vpzo.onrender.com/auth/github/callback',
         state: state,
         scope: 'user:email,repo',
