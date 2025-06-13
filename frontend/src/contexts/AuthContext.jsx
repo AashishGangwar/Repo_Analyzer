@@ -30,21 +30,6 @@ export const AuthProvider = ({ children }) => {
           setUser(parsedAdmin);
           setIsAdmin(true);
           setIsAuthenticated(true);
-          
-          // Update analytics
-          setAnalytics(prev => ({
-            ...prev,
-            totalLogins: (prev.totalLogins || 0) + 1,
-            userLogs: [
-              ...(prev.userLogs || []),
-              {
-                username: parsedAdmin.username || 'admin',
-                action: 'admin_session_restored',
-                time: new Date().toISOString()
-              }
-            ].slice(-50)
-          }));
-          
           setLoading(false);
           return;
         }
@@ -55,8 +40,8 @@ export const AuthProvider = ({ children }) => {
           const parsedUser = JSON.parse(savedUser);
           console.log('Found regular user:', parsedUser);
           setUser(parsedUser);
-          setIsAdmin(false);
           setIsAuthenticated(true);
+          setIsAdmin(false);
         } else {
           console.log('No saved user found');
           setIsAuthenticated(false);
@@ -101,34 +86,29 @@ export const AuthProvider = ({ children }) => {
         state: { 
           error: `GitHub authentication failed: ${errorDesc}`,
           errorDetails: { error, error_description: errorDesc }
-        } 
+        },
+        replace: true
       });
       return;
     }
     
     // If we have both code and state parameters
     if (code && state) {
-      if (location.pathname === '/auth/github/callback') {
-        console.log('Handling GitHub OAuth callback with code and state');
-        handleGitHubCallback(code, state);
-      } else {
-        console.warn('Received OAuth code and state but path is not /auth/github/callback');
-        // If we're not on the callback path but have the code, redirect to the callback
-        navigate(`/auth/github/callback?code=${code}&state=${state}`, { replace: true });
-      }
-    } else {
-      console.log('No OAuth code/state found in URL');
-      
+      console.log('Handling GitHub OAuth callback with code and state');
+      handleGitHubCallback(code, state);
+    } else if (location.pathname === '/auth/github/callback') {
       // If we're on the callback URL but don't have code/state, redirect to login
-      if (location.pathname === '/auth/github/callback') {
-        console.warn('No code/state found in callback URL, redirecting to login');
-        navigate('/login', { 
-          state: { 
-            error: 'Invalid authentication response from GitHub',
-            errorDetails: { missing: !code ? 'code' : '', missingState: !state ? 'state' : '' }
-          } 
-        });
-      }
+      console.warn('No code/state found in callback URL, redirecting to login');
+      navigate('/login', { 
+        state: { 
+          error: 'Invalid authentication response from GitHub',
+          errorDetails: { 
+            missing: !code ? 'code' : '', 
+            missingState: !state ? 'state' : '' 
+          }
+        },
+        replace: true
+      });
     }
   }, [location]);
 
@@ -137,9 +117,9 @@ export const AuthProvider = ({ children }) => {
     try {
       console.log('=== GitHub OAuth Flow Debug ===');
       
-      // Get client ID and callback URL from environment variables
-      const clientId = import.meta.env.VITE_GITHUB_CLIENT_ID;
-      let callbackUrl = import.meta.env.VITE_GITHUB_CALLBACK_URL;
+      // Always use the production callback URL to match GitHub app settings
+      const clientId = 'Ov23liA914N4ENADI5iu'; // Your GitHub Client ID
+      const callbackUrl = 'https://repo-analyzer-vpzo.onrender.com/auth/github/callback';
       
       console.log('OAuth Configuration:', {
         clientId: clientId ? '✅ Present' : '❌ Missing',
@@ -147,20 +127,16 @@ export const AuthProvider = ({ children }) => {
       });
       
       if (!clientId) {
-        const error = 'GitHub Client ID is not set in environment variables';
-        console.error('❌ Error:', error);
-        throw new Error('GitHub authentication is not properly configured. Please contact support.');
-      }
-      
-      if (!callbackUrl) {
-        const error = 'GitHub Callback URL is not set in environment variables';
+        const error = 'GitHub Client ID is not set';
         console.error('❌ Error:', error);
         throw new Error('GitHub authentication is not properly configured. Please contact support.');
       }
       
       // Generate a random state parameter to prevent CSRF
       const state = Math.random().toString(36).substring(2);
-      localStorage.setItem('github_auth_state', state);
+      // Store state in both sessionStorage and localStorage for redundancy
+      sessionStorage.setItem('github_oauth_state', state);
+      localStorage.setItem('github_oauth_state', state);
       
       // Build the authorization URL
       const scope = 'read:user user:email';
@@ -169,6 +145,7 @@ export const AuthProvider = ({ children }) => {
       authUrl.searchParams.append('redirect_uri', callbackUrl);
       authUrl.searchParams.append('scope', scope);
       authUrl.searchParams.append('state', state);
+      authUrl.searchParams.append('allow_signup', 'false');
       
       const finalAuthUrl = authUrl.toString();
       
@@ -177,7 +154,7 @@ export const AuthProvider = ({ children }) => {
         client_id: clientId,
         redirect_uri: callbackUrl,
         scope: scope,
-        state: state,
+        state: '***', // Don't log the actual state
         full_url: finalAuthUrl
       });
       
@@ -196,31 +173,23 @@ export const AuthProvider = ({ children }) => {
     console.log('Starting token exchange with GitHub...');
     
     try {
-      const requestBody = {
-        client_id: import.meta.env.VITE_GITHUB_CLIENT_ID,
-        client_secret: import.meta.env.VITE_GITHUB_CLIENT_SECRET,
-        code: code,
-        redirect_uri: import.meta.env.VITE_GITHUB_CALLBACK_URL
-      };
+      const backendUrl = 'https://repo-analyzer-vpzo.onrender.com';
+      const tokenEndpoint = `${backendUrl}/auth/github/access_token`;
       
-      console.log('Request body:', {
-        client_id: requestBody.client_id ? '✅ Present' : '❌ Missing',
-        client_secret: requestBody.client_secret ? '✅ Present' : '❌ Missing',
-        code: code ? '✅ Present' : '❌ Missing',
-        redirect_uri: requestBody.redirect_uri || '❌ Missing'
-      });
+      console.log('Sending request to token endpoint:', tokenEndpoint);
       
-      // Using Vite's proxy to avoid CORS issues
-      const apiUrl = '/api/github/login/oauth/access_token';
-      console.log('Sending request to local proxy:', apiUrl);
-      
-      const tokenResponse = await fetch(apiUrl, {
+      const tokenResponse = await fetch(tokenEndpoint, {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
-          'Accept': 'application/json'
+          'Accept': 'application/json',
+          'Origin': window.location.origin
         },
-        body: JSON.stringify(requestBody)
+        body: JSON.stringify({
+          code: code,
+          // No need to send client_secret from the frontend - handled by backend
+        }),
+        credentials: 'include' // Important for cookies/session
       });
 
       console.log('Token exchange response status:', tokenResponse.status);
@@ -251,19 +220,32 @@ export const AuthProvider = ({ children }) => {
         console.log('Token data received:', {
           has_access_token: !!tokenData.access_token,
           scope: tokenData.scope,
-          token_type: tokenData.token_type
+          token_type: tokenData.token_type,
+          user: tokenData.user ? '✅ Present' : '❌ Missing'
         });
+        
+        // If we have user data in the response, return it directly
+        if (tokenData.user) {
+          return {
+            accessToken: tokenData.access_token,
+            user: tokenData.user
+          };
+        }
+        
       } catch (e) {
         console.error('Failed to parse token response:', responseText);
-        throw new Error('Invalid response from GitHub');
+        throw new Error('Invalid response from server');
       }
       
       if (!tokenData.access_token) {
         console.error('No access token in response:', tokenData);
-        throw new Error('No access token received from GitHub');
+        throw new Error('No access token received from server');
       }
 
-      return tokenData.access_token;
+      return {
+        accessToken: tokenData.access_token,
+        user: null // Will be fetched in the next step if needed
+      };
     } catch (error) {
       console.error('Error in exchangeCodeForToken:', error);
       throw new Error(`Failed to exchange code for token: ${error.message}`);
@@ -355,12 +337,17 @@ export const AuthProvider = ({ children }) => {
       setLoading(true);
       
       // Verify state to prevent CSRF
-      const savedState = localStorage.getItem('github_auth_state');
+      const savedState = sessionStorage.getItem('github_oauth_state') || 
+                       localStorage.getItem('github_oauth_state');
       console.log('State verification:', {
         savedState: savedState ? '✅ Present' : '❌ Missing',
         receivedState: state || '❌ Missing',
         stateMatch: savedState === state ? '✅ Valid' : '❌ Mismatch'
       });
+      
+      // Clean up the state regardless of the result
+      sessionStorage.removeItem('github_oauth_state');
+      localStorage.removeItem('github_oauth_state');
       
       if (!savedState || savedState !== state) {
         const error = 'State mismatch. Possible CSRF attack or session expired.';
@@ -369,106 +356,107 @@ export const AuthProvider = ({ children }) => {
       }
       
       console.log('Exchanging authorization code for access token...');
-      const accessToken = await exchangeCodeForToken(code);
+      const { accessToken, user } = await exchangeCodeForToken(code);
+      
+      // If we already have user data from the token exchange, use it
+      if (user) {
+        console.log('User data received from token exchange:', { 
+          id: user.id, 
+          username: user.username || user.login,
+          email: user.email 
+        });
+        
+        // Save user data to localStorage
+        localStorage.setItem('user', JSON.stringify(user));
+        setUser(user);
+        setIsAuthenticated(true);
+        setIsAdmin(false);
+        
+        // Update analytics
+        setAnalytics(prev => ({
+          ...prev,
+          totalLogins: (prev.totalLogins || 0) + 1,
+          userLogs: [
+            ...(prev.userLogs || []),
+            {
+              username: user.username || user.login || 'unknown',
+              action: 'github_login',
+              time: new Date().toISOString(),
+              source: 'github'
+            }
+          ].slice(-50)
+        }));
+        
+        // Clean up the URL
+        const cleanUrl = window.location.pathname;
+        window.history.replaceState({}, document.title, cleanUrl);
+        
+        // Redirect to home page
+        navigate('/');
+        return;
+      }
       
       if (!accessToken) {
-        throw new Error('Failed to obtain access token from GitHub');
+        throw new Error('No access token received from server');
       }
       
-      console.log('✅ Successfully obtained access token');
-      console.log('Fetching user data from GitHub...');
+      console.log('Successfully obtained access token');
       
+      // Fetch user data using the access token
+      console.log('Fetching user data from GitHub...');
       const userData = await fetchGitHubUser(accessToken);
       
-      if (!userData || !userData.id) {
-        throw new Error('Failed to fetch user data from GitHub');
-      }
-      
-      console.log('✅ Successfully fetched user data:', {
-        id: userData.id,
-        username: userData.username,
-        name: userData.name
-      });
-      
-      // Save user data to state and localStorage
+      // Save user data to localStorage
+      localStorage.setItem('user', JSON.stringify(userData));
       setUser(userData);
       setIsAuthenticated(true);
-      localStorage.setItem('githubUser', JSON.stringify(userData));
-      localStorage.removeItem('github_auth_state');
+      setIsAdmin(false);
+      
+      // Update analytics
+      setAnalytics(prev => ({
+        ...prev,
+        totalLogins: (prev.totalLogins || 0) + 1,
+        userLogs: [
+          ...(prev.userLogs || []),
+          {
+            username: userData.username || userData.login || 'unknown',
+            action: 'github_login',
+            time: new Date().toISOString(),
+            source: 'github'
+          }
+        ].slice(-50)
+      }));
       
       // Clean up the URL
-      const cleanPath = window.location.pathname;
-      window.history.replaceState({}, document.title, cleanPath);
-      console.log('✅ Cleaned up URL, redirecting to home page...');
+      const cleanUrl = window.location.pathname;
+      window.history.replaceState({}, document.title, cleanUrl);
       
-      // Redirect to home page
-      navigate('/');
+      // Redirect to home page or the page they were trying to access
+      const from = location.state?.from?.pathname || '/';
+      console.log(`✅ Login successful, redirecting to ${from}`);
+      navigate(from, { replace: true });
       
     } catch (error) {
-      console.error('❌ Error during GitHub authentication:', {
-        message: error.message,
-        stack: error.stack,
-        name: error.name
-      });
+      console.error('Error in handleGitHubCallback:', error);
       
-      // Clear any partial auth state
-      localStorage.removeItem('githubUser');
-      localStorage.removeItem('github_auth_state');
+      // Clean up any stored state on error
+      sessionStorage.removeItem('github_oauth_state');
+      localStorage.removeItem('github_oauth_state');
       
       // Navigate to login with error
       navigate('/login', { 
         state: { 
           error: error.message || 'Failed to authenticate with GitHub',
-          errorDetails: {
-            name: error.name,
-            message: error.message,
-            stack: process.env.NODE_ENV === 'development' ? error.stack : undefined
-          }
-        } 
+          errorDetails: error
+        },
+        replace: true
       });
     } finally {
       setLoading(false);
     }
   };
 
-  const login = (userData, isAdminUser = false) => {
-    if (isAdminUser) {
-      const adminUser = {
-        username: 'admin',
-        isAdmin: true
-      };
-      setUser(adminUser);
-      setIsAdmin(true);
-      setIsAuthenticated(true);
-      localStorage.setItem('adminUser', JSON.stringify(adminUser));
-      return;
-    }
-
-    const userToSet = userData || {
-      name: 'Developer',
-      username: 'dev',
-      email: 'dev@example.com'
-    };
-    setUser(userToSet);
-    setIsAdmin(false);
-    setIsAuthenticated(true);
-    localStorage.setItem('user', JSON.stringify(userToSet));
-    
-    // Update analytics
-    setAnalytics(prev => ({
-      ...prev,
-      totalLogins: (prev.totalLogins || 0) + 1,
-      userLogs: [
-        ...(prev.userLogs || []),
-        {
-          username: userToSet.username,
-          loginTime: new Date().toISOString(),
-          action: 'login'
-        }
-      ].slice(-50)
-    }));
-  };
-  
+  // Admin login function
   const adminLogin = async (username, password) => {
     console.log('adminLogin called with:', { username });
     
@@ -488,20 +476,6 @@ export const AuthProvider = ({ children }) => {
       setIsAdmin(true);
       setIsAuthenticated(true);
       
-      // Update analytics
-      setAnalytics(prev => ({
-        ...prev,
-        totalLogins: (prev.totalLogins || 0) + 1,
-        userLogs: [
-          ...(prev.userLogs || []),
-          {
-            username: 'admin',
-            action: 'admin_login',
-            time: new Date().toISOString()
-          }
-        ].slice(-50)
-      }));
-      
       // Store in localStorage
       localStorage.setItem('adminUser', JSON.stringify(adminUser));
       console.log('Admin user stored in localStorage');
@@ -513,38 +487,29 @@ export const AuthProvider = ({ children }) => {
     throw new Error('Invalid admin credentials');
   };
 
+  // Logout function
   const logout = () => {
     if (isAdmin) {
       localStorage.removeItem('adminUser');
     } else {
       localStorage.removeItem('user');
-      localStorage.removeItem('githubUser');
-      localStorage.removeItem('github_auth_state');
     }
+    
+    // Clear all auth-related data
+    sessionStorage.removeItem('github_oauth_state');
+    localStorage.removeItem('github_oauth_state');
+    
+    // Reset state
     setUser(null);
     setIsAdmin(false);
     setIsAuthenticated(false);
-    navigate('/login');
-  };
-
-  // Add a repository analyzed to the analytics
-  const addRepoAnalyzed = (repoName) => {
-    setAnalytics(prev => ({
-      ...prev,
-      totalReposAnalyzed: (prev.totalReposAnalyzed || 0) + 1,
-      userLogs: [
-        ...(prev.userLogs || []),
-        {
-          username: user?.username || 'anonymous',
-          action: `analyzed ${repoName}`,
-          time: new Date().toISOString()
-        }
-      ].slice(-50)
-    }));
+    
+    // Redirect to login page
+    navigate('/login', { replace: true });
   };
 
   return (
-    <AuthContext.Provider
+    <AuthContext.Provider 
       value={{
         user,
         isAdmin,
@@ -553,12 +518,10 @@ export const AuthProvider = ({ children }) => {
         analytics,
         loginWithGitHub,
         adminLogin,
-        logout,
-        login,
-        addRepoAnalyzed
+        logout
       }}
     >
-      {!loading && children}
+      {children}
     </AuthContext.Provider>
   );
 };
