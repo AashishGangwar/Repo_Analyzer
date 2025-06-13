@@ -43,6 +43,12 @@ const allowedOrigins = [
 // CORS configuration
 const corsOptions = {
   origin: function (origin, callback) {
+    // In development, allow all origins
+    if (process.env.NODE_ENV !== 'production') {
+      console.log('Development mode - allowing all origins');
+      return callback(null, true);
+    }
+    
     // Allow requests with no origin (like mobile apps, curl, postman)
     if (!origin) {
       console.log('Request with no origin - allowing with CORS');
@@ -80,7 +86,7 @@ const corsOptions = {
   },
   credentials: true,
   methods: ['GET', 'POST', 'OPTIONS', 'PUT', 'DELETE'],
-  allowedHeaders: ['Content-Type', 'Authorization', 'X-Requested-With', 'Accept'],
+  allowedHeaders: ['Content-Type', 'Authorization', 'X-Requested-With', 'Accept', 'X-State-Header'],
   exposedHeaders: ['Set-Cookie', 'Authorization'],
   maxAge: 600, // 10 minutes
   preflightContinue: false,
@@ -213,15 +219,7 @@ app.get('/auth/github/callback', async (req, res) => {
   });
   
   // Clear the state cookie immediately after reading it
-  res.clearCookie('oauth_state', { 
-    ...cookieOptions,
-    maxAge: 0, // Expire immediately
-    path: '/',
-    httpOnly: true,
-    secure: isProduction,
-    sameSite: isProduction ? 'none' : 'lax',
-    domain: isProduction ? '.repo-analyzer-2ra5.vercel.app' : undefined
-  });
+  res.clearCookie('oauth_state', cookieOptions);
   
   // Check for OAuth errors
   if (error) {

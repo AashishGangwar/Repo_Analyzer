@@ -11,21 +11,22 @@ export default defineConfig({
     proxy: {
       // Proxy API requests to your backend
       '/api': {
-        target: 'http://localhost:5000',
+        target: 'https://repo-analyzer-vpzo.onrender.com',
         changeOrigin: true,
-        secure: false,
+        secure: true,
         rewrite: (path) => path.replace(/^\/api/, '')
       },
       // Proxy OAuth requests to backend
       '/auth': {
-        target: 'http://localhost:5000',
+        target: 'https://repo-analyzer-vpzo.onrender.com',
         changeOrigin: true,
-        secure: false
+        secure: true
       },
       // Proxy GitHub API requests
       '/github': {
-        target: 'https://github.com',
+        target: 'https://api.github.com',
         changeOrigin: true,
+        secure: true,
         rewrite: (path) => path.replace(/^\/github/, '')
       }
     },
