@@ -226,7 +226,11 @@ app.get('/auth/github/callback', async (req, res) => {
   // Check for OAuth errors
   if (error) {
     console.error('GitHub OAuth error:', { error, error_description });
-    const redirectUrl = createFrontendUrl('/login', { error: error_description || error });
+    // Redirect to the root with error parameters
+    const redirectUrl = createFrontendUrl('/', { 
+      auth_error: 'github_oauth_failed',
+      message: error_description || error 
+    });
     return res.redirect(redirectUrl.toString());
   }
   
@@ -253,47 +257,63 @@ app.get('/auth/github/callback', async (req, res) => {
   
   if (!code) {
     console.error('No authorization code received');
-    const redirectUrl = createFrontendUrl('/login', { error: 'no_code' });
+    const redirectUrl = createFrontendUrl('/', { 
+      auth_error: 'no_authorization_code',
+      message: 'No authorization code received from GitHub' 
+    });
     return res.redirect(redirectUrl.toString());
   }
 
   try {
     console.log('Exchanging authorization code for access token...');
     
-    // Build the redirect URI for the token request
-    const redirectUri = isProduction 
-      ? 'https://repo-analyzer-vpzo.onrender.com/auth/github/callback'
-      : `${req.protocol}://${req.get('host')}/auth/github/callback`;
-
+    // Always use the production callback URL for token exchange to match GitHub app settings
+    const redirectUri = 'https://repo-analyzer-vpzo.onrender.com/auth/github/callback';
+    
     console.log('Exchanging code for token with redirect_uri:', redirectUri);
+    console.log('Using Client ID:', process.env.GITHUB_CLIENT_ID ? 'Set' : 'Not set');
+    console.log('Using Client Secret:', process.env.GITHUB_CLIENT_SECRET ? 'Set' : 'Not set');
     
     // Exchange code for access token
-    const tokenResponse = await axios.post(
-      'https://github.com/login/oauth/access_token',
-      {
-        client_id: process.env.GITHUB_CLIENT_ID,
-        client_secret: process.env.GITHUB_CLIENT_SECRET,
-        code,
-        redirect_uri: redirectUri,
-        state: stateFromGitHub
-      },
-      {
-        headers: {
-          'Accept': 'application/json',
-          'Content-Type': 'application/json'
+    let tokenResponse;
+    try {
+      tokenResponse = await axios.post(
+        'https://github.com/login/oauth/access_token',
+        {
+          client_id: process.env.GITHUB_CLIENT_ID,
+          client_secret: process.env.GITHUB_CLIENT_SECRET,
+          code,
+          redirect_uri: redirectUri,
+          state: stateFromGitHub
+        },
+        {
+          headers: {
+            'Accept': 'application/json',
+            'Content-Type': 'application/json'
+          },
+          timeout: 10000 // 10 second timeout
         }
-      }
-    );
+      );
+    } catch (axiosError) {
+      console.error('Axios error during token exchange:', {
+        message: axiosError.message,
+        response: axiosError.response?.data,
+        status: axiosError.response?.status
+      });
+      throw new Error('Failed to communicate with GitHub. Please try again.');
+    }
 
-    console.log('GitHub token response:', {
-      status: tokenResponse.status,
-      data: tokenResponse.data ? 'received' : 'empty',
-      hasError: !!tokenResponse.data?.error
-    });
+    console.log('GitHub token response status:', tokenResponse.status);
+    console.log('GitHub token response data:', JSON.stringify(tokenResponse.data, null, 2));
 
     if (tokenResponse.data.error) {
       console.error('GitHub token exchange error:', tokenResponse.data);
-      throw new Error(tokenResponse.data.error_description || 'Failed to exchange code for token');
+      throw new Error(tokenResponse.data.error_description || `GitHub error: ${tokenResponse.data.error}`);
+    }
+
+    if (!tokenResponse.data.access_token) {
+      console.error('No access token in response:', tokenResponse.data);
+      throw new Error('No access token received from GitHub');
     }
 
     const { access_token: accessToken } = tokenResponse.data;
