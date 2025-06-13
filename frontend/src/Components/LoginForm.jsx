@@ -37,17 +37,17 @@ const LoginForm = () => {
       // Store state in session storage
       sessionStorage.setItem('oauth_state', state);
       
-      // Build the OAuth URL
-      const params = new URLSearchParams({
-        client_id: process.env.REACT_APP_GITHUB_CLIENT_ID || 'YOUR_GITHUB_CLIENT_ID',
-        redirect_uri: 'https://repo-analyzer-vpzo.onrender.com/auth/github/callback',
-        state: state,
-        scope: 'user:email,repo',
-        allow_signup: 'false'
-      });
+      // Set the correct client ID and redirect URI based on environment
+      const clientId = 'YOUR_GITHUB_CLIENT_ID'; // Replace with your actual GitHub Client ID
+      const redirectUri = window.location.hostname === 'localhost' 
+        ? 'http://localhost:5000/auth/github/callback' 
+        : 'https://repo-analyzer-vpzo.onrender.com/auth/github/callback';
       
-      // Redirect to GitHub OAuth
-      window.location.href = `https://github.com/login/oauth/authorize?${params.toString()}`;
+      // Build the OAuth URL
+      const oauthUrl = `https://github.com/login/oauth/authorize?client_id=${clientId}&redirect_uri=${encodeURIComponent(redirectUri)}&state=${state}&scope=user:email,repo&allow_signup=false`;
+      
+      console.log('Redirecting to GitHub OAuth:', oauthUrl);
+      window.location.href = oauthUrl;
     } catch (err) {
       console.error('GitHub login error:', err);
       setError(`Failed to initiate GitHub login: ${err.message}`);
