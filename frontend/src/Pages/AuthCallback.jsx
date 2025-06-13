@@ -1,62 +1,93 @@
 import { useEffect } from 'react';
-import { useNavigate, useSearchParams } from 'react-router-dom';
+import { useNavigate, useSearchParams, useLocation } from 'react-router-dom';
 import { useAuth } from '../contexts/AuthContext';
 
 export default function AuthCallback() {
   const [searchParams] = useSearchParams();
   const navigate = useNavigate();
+  const location = useLocation();
   const { handleAuthCallback } = useAuth();
 
   useEffect(() => {
     const processAuthCallback = async () => {
-      const token = searchParams.get('token');
-      const user = searchParams.get('user');
-      const state = searchParams.get('state');
-      const error = searchParams.get('error');
-
-      console.log('Processing auth callback with params:', { token, user, state, error });
-
-      if (error) {
-        console.error('Authentication error:', error);
-        navigate('/login', { 
-          state: { 
-            error: 'Authentication failed',
-            errorDetails: error
-          },
-          replace: true 
-        });
-        return;
-      }
-
-      if (!token || !user) {
-        console.error('Missing token or user data in callback');
-        navigate('/login', { 
-          state: { 
-            error: 'Authentication incomplete',
-            errorDetails: 'Missing authentication data. Please try again.'
-          },
-          replace: true 
-        });
-        return;
-      }
-
       try {
-        // Handle the authentication callback
+        console.log('=== AuthCallback Mounted ===');
+        console.log('URL Search Params:', Object.fromEntries([...searchParams]));
+        
+        const token = searchParams.get('token');
+        const userParam = searchParams.get('user');
+        const state = searchParams.get('state');
+        const error = searchParams.get('error');
+
+        console.log('Processing auth callback with params:', { 
+          hasToken: !!token, 
+          hasUser: !!userParam, 
+          state: state ? '***' : 'none',
+          error: error || 'none'
+        });
+
+        // Handle OAuth errors
+        if (error) {
+          console.error('OAuth error from provider:', error);
+          const errorDesc = searchParams.get('error_description') || 'Authentication failed';
+          navigate('/login', { 
+            state: { 
+              error: `Authentication failed: ${error}`,
+              errorDetails: errorDesc
+            },
+            replace: true 
+          });
+          return;
+        }
+
+        // Validate required parameters
+        if (!token || !userParam) {
+          console.error('Missing required parameters:', { token: !!token, user: !!userParam });
+          navigate('/login', { 
+            state: { 
+              error: 'Authentication incomplete',
+              errorDetails: 'Missing required authentication data.'
+            },
+            replace: true 
+          });
+          return;
+        }
+
+        // Parse user data
+        let userData;
+        try {
+          userData = JSON.parse(decodeURIComponent(userParam));
+          console.log('Parsed user data:', userData);
+        } catch (e) {
+          console.error('Failed to parse user data:', e);
+          throw new Error('Invalid user data received');
+        }
+
+        // Process the authentication
+        console.log('Calling handleAuthCallback...');
         await handleAuthCallback({
           token,
-          user: JSON.parse(user),
+          user: userData,
           state
         });
 
-        // Redirect to the home page or the originally requested page
-        const from = searchParams.get('from') || '/';
+        // Get the original URL or default to dashboard
+        const from = location.state?.from?.pathname || '/';
+        console.log('Authentication successful, redirecting to:', from);
+        
+        // Clean up the URL
+        window.history.replaceState({}, document.title, window.location.pathname);
+        
+        // Redirect to the intended page
         navigate(from, { replace: true });
+        
       } catch (err) {
-        console.error('Error processing authentication:', err);
+        console.error('Error in AuthCallback:', err);
         navigate('/login', { 
           state: { 
-            error: 'Authentication error',
-            errorDetails: err.message
+            error: 'Authentication Failed',
+            errorDetails: err.message || 'An error occurred during authentication',
+            errorStack: process.env.NODE_ENV === 'development' ? err.stack : undefined
           },
           replace: true 
         });
@@ -64,13 +95,15 @@ export default function AuthCallback() {
     };
 
     processAuthCallback();
-  }, [searchParams, navigate, handleAuthCallback]);
+  }, [searchParams, navigate, handleAuthCallback, location.state]);
 
   return (
-    <div className="flex items-center justify-center min-h-screen bg-gray-100">
-      <div className="text-center">
-        <div className="animate-spin rounded-full h-12 w-12 border-t-2 border-b-2 border-indigo-600 mx-auto"></div>
-        <p className="mt-4 text-gray-700">Completing authentication...</p>
+    <div className="flex items-center justify-center min-h-screen bg-gray-100 dark:bg-gray-900">
+      <div className="text-center p-8 bg-white dark:bg-gray-800 rounded-lg shadow-lg">
+        <div className="animate-spin rounded-full h-16 w-16 border-t-4 border-b-4 border-indigo-600 mx-auto mb-4"></div>
+        <h2 className="text-xl font-semibold text-gray-800 dark:text-white mb-2">Completing Authentication</h2>
+        <p className="text-gray-600 dark:text-gray-300">Please wait while we log you in...</p>
+        <p className="text-sm text-gray-500 dark:text-gray-400 mt-4">This may take a few moments</p>
       </div>
     </div>
   );

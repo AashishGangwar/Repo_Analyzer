@@ -382,13 +382,23 @@ app.get('/auth/github/callback', async (req, res) => {
     const token = accessToken; // In production, consider creating a JWT instead
     
     // Redirect to frontend with tokens as URL parameters
-    const redirectUrl = createFrontendUrl('/auth/callback', {
-      token: token,
-      user: JSON.stringify(userData),
-      state: stateFromGitHub // Include the original state for CSRF protection
-    });
+    // Using the frontend's callback route
+    const frontendUrl = process.env.FRONTEND_URL || 'https://repo-analyzer-2ra5.vercel.app';
+    const redirectUrl = new URL('/auth/callback', frontendUrl);
+    
+    // Add token and user data as URL parameters
+    redirectUrl.searchParams.append('token', token);
+    redirectUrl.searchParams.append('user', JSON.stringify(userData));
+    if (stateFromGitHub) {
+      redirectUrl.searchParams.append('state', stateFromGitHub);
+    }
     
     console.log('Redirecting to frontend with auth data:', redirectUrl.toString());
+    
+    // Clear any existing cookies to prevent conflicts
+    res.clearCookie('oauth_state', getCookieOptions());
+    
+    // Redirect to the frontend with the token and user data
     return res.redirect(redirectUrl.toString());
     
   } catch (error) {
