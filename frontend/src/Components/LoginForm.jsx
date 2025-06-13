@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import { useNavigate } from 'react-router-dom';
 import styled from 'styled-components';
 import { useAuth } from '../contexts/AuthContext';
@@ -11,6 +11,19 @@ const LoginForm = () => {
   const [error, setError] = useState('');
   const [isLoading, setIsLoading] = useState(false);
   const navigate = useNavigate();
+
+  // Check for OAuth errors in URL when component mounts
+  useEffect(() => {
+    const params = new URLSearchParams(window.location.search);
+    const error = params.get('error');
+    if (error) {
+      setError(decodeURIComponent(error).replace(/\+/g, ' '));
+      // Clear the error from URL
+      const url = new URL(window.location.href);
+      url.searchParams.delete('error');
+      window.history.replaceState({}, document.title, url.toString());
+    }
+  }, []);
   
   const handleGitHubLogin = async (e) => {
     e.preventDefault();
@@ -18,20 +31,26 @@ const LoginForm = () => {
     setError('');
     
     try {
-      // Determine environment
-      const isLocalhost = window.location.hostname === 'localhost' || 
-                         window.location.hostname === '127.0.0.1';
+      // Generate a random state parameter
+      const state = Math.random().toString(36).substring(2);
       
-      // Use environment-specific backend URL
-      const backendBaseUrl = isLocalhost 
-        ? 'http://localhost:5000'  // Local development
-        : 'https://repo-analyzer-vpzo.onrender.com'; // Production backend
+      // Store state in session storage
+      sessionStorage.setItem('oauth_state', state);
       
-      // Redirect to backend OAuth endpoint
-      window.location.href = `${backendBaseUrl}/auth/github`;
+      // Build the OAuth URL
+      const params = new URLSearchParams({
+        client_id: 'YOUR_GITHUB_CLIENT_ID', // Replace with your GitHub Client ID
+        redirect_uri: 'https://repo-analyzer-vpzo.onrender.com/auth/github/callback',
+        state: state,
+        scope: 'user:email,repo',
+        allow_signup: 'false'
+      });
+      
+      // Redirect to GitHub OAuth
+      window.location.href = `https://github.com/login/oauth/authorize?${params.toString()}`;
     } catch (err) {
       console.error('GitHub login error:', err);
-      setError('Failed to initiate GitHub login. Please try again.');
+      setError(`Failed to initiate GitHub login: ${err.message}`);
       setIsLoading(false);
     }
   };

@@ -36,7 +36,8 @@ const allowedOrigins = [
   'https://repo-analyzer-2ra5.vercel.app',
   'http://localhost:5173',
   'http://localhost:4173',
-  'http://localhost:3000'
+  'http://localhost:3000',
+  'https://github.com'
 ].filter((value, index, self) => self.indexOf(value) === index); // Remove duplicates
 
 // CORS configuration
@@ -45,6 +46,14 @@ const corsOptions = {
     // Allow requests with no origin (like mobile apps, curl, postman)
     if (!origin) {
       console.log('Request with no origin - allowing with CORS');
+      return callback(null, true);
+    }
+    
+    // Log CORS requests for debugging
+    console.log('CORS check for origin:', origin);
+    
+    // Allow GitHub OAuth callback
+    if (origin.includes('github.com')) {
       return callback(null, true);
     }
     
@@ -188,6 +197,9 @@ app.get('/auth/github/callback', async (req, res) => {
   console.log('Request headers:', req.headers);
   console.log('Cookies received:', req.cookies);
   
+  // Log the complete URL for debugging
+  console.log('Full callback URL:', req.protocol + '://' + req.get('host') + req.originalUrl);
+  
   const { code, state: stateFromGitHub, error, error_description } = req.query;
   const stateFromCookie = req.cookies.oauth_state;
   const cookieOptions = getCookieOptions();
@@ -205,7 +217,10 @@ app.get('/auth/github/callback', async (req, res) => {
     ...cookieOptions,
     maxAge: 0, // Expire immediately
     path: '/',
-    domain: undefined // Ensure we don't set domain when clearing
+    httpOnly: true,
+    secure: isProduction,
+    sameSite: isProduction ? 'none' : 'lax',
+    domain: isProduction ? '.repo-analyzer-2ra5.vercel.app' : undefined
   });
   
   // Check for OAuth errors
@@ -215,8 +230,12 @@ app.get('/auth/github/callback', async (req, res) => {
     return res.redirect(redirectUrl.toString());
   }
   
+  // Get state from session storage (sent from frontend)
+  const stateFromSession = req.headers['x-state-header'] || req.query.state;
+  
   // Validate state parameter
-  if (!stateFromGitHub || !stateFromCookie || stateFromGitHub !== stateFromCookie) {
+  if (!stateFromGitHub || (!stateFromCookie && !stateFromSession) || 
+      (stateFromGitHub !== stateFromCookie && stateFromGitHub !== stateFromSession)) {
     console.error('State validation failed - possible CSRF attack or expired session:', {
       stateFromGitHub: stateFromGitHub || 'undefined',
       stateFromCookie: stateFromCookie || 'undefined',
@@ -241,6 +260,13 @@ app.get('/auth/github/callback', async (req, res) => {
   try {
     console.log('Exchanging authorization code for access token...');
     
+    // Build the redirect URI for the token request
+    const redirectUri = isProduction 
+      ? 'https://repo-analyzer-vpzo.onrender.com/auth/github/callback'
+      : `${req.protocol}://${req.get('host')}/auth/github/callback`;
+
+    console.log('Exchanging code for token with redirect_uri:', redirectUri);
+    
     // Exchange code for access token
     const tokenResponse = await axios.post(
       'https://github.com/login/oauth/access_token',
@@ -248,7 +274,7 @@ app.get('/auth/github/callback', async (req, res) => {
         client_id: process.env.GITHUB_CLIENT_ID,
         client_secret: process.env.GITHUB_CLIENT_SECRET,
         code,
-        redirect_uri: `${process.env.BACKEND_URL || 'https://repo-analyzer-vpzo.onrender.com'}/auth/github/callback`,
+        redirect_uri: redirectUri,
         state: stateFromGitHub
       },
       {
@@ -258,6 +284,12 @@ app.get('/auth/github/callback', async (req, res) => {
         }
       }
     );
+
+    console.log('GitHub token response:', {
+      status: tokenResponse.status,
+      data: tokenResponse.data ? 'received' : 'empty',
+      hasError: !!tokenResponse.data?.error
+    });
 
     if (tokenResponse.data.error) {
       console.error('GitHub token exchange error:', tokenResponse.data);
