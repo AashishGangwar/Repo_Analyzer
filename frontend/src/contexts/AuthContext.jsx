@@ -5,6 +5,7 @@ const AuthContext = createContext();
 
 export const AuthProvider = ({ children }) => {
   const [user, setUser] = useState(null);
+  const [token, setToken] = useState(localStorage.getItem('token') || null);
   const [isAdmin, setIsAdmin] = useState(false);
   const [isAuthenticated, setIsAuthenticated] = useState(false);
   const [loading, setLoading] = useState(true);
@@ -34,17 +35,23 @@ export const AuthProvider = ({ children }) => {
           return;
         }
         
-        // Check for regular user
+        // Check for regular user and token
         const savedUser = localStorage.getItem('user');
-        if (savedUser) {
+        const savedToken = localStorage.getItem('token');
+        
+        if (savedUser && savedToken) {
           const parsedUser = JSON.parse(savedUser);
-          console.log('Found regular user:', parsedUser);
+          console.log('Found regular user with token');
           setUser(parsedUser);
+          setToken(savedToken);
           setIsAuthenticated(true);
           setIsAdmin(false);
         } else {
-          console.log('No saved user found');
+          console.log('No valid session found');
           setIsAuthenticated(false);
+          // Clear any partial auth state
+          localStorage.removeItem('user');
+          localStorage.removeItem('token');
         }
       } catch (error) {
         console.error('Error checking auth:', error);
@@ -329,7 +336,7 @@ export const AuthProvider = ({ children }) => {
   };
 
   // Handle the OAuth callback from the backend
-  const handleAuthCallback = async ({ token, user, state }) => {
+  const handleAuthCallback = async ({ token: authToken, user, state }) => {
     try {
       setLoading(true);
       console.log('=== Handling Auth Callback ===');
@@ -364,13 +371,17 @@ export const AuthProvider = ({ children }) => {
         throw new Error('Invalid user data received from authentication provider');
       }
 
+      if (!authToken) {
+        throw new Error('No authentication token received');
+      }
+
       // Store the token and user data
-      localStorage.setItem('token', token);
+      localStorage.setItem('token', authToken);
       localStorage.setItem('user', JSON.stringify(user));
       
       // Update state
       setUser(user);
-      setToken(token);
+      setToken(authToken);
       setIsAuthenticated(true);
       
       // Update analytics
@@ -576,40 +587,42 @@ export const AuthProvider = ({ children }) => {
 
   // Logout function
   const logout = () => {
-    if (isAdmin) {
-      localStorage.removeItem('adminUser');
-    } else {
-      localStorage.removeItem('user');
-    }
-    
-    // Clear all auth-related data
-    sessionStorage.removeItem('github_oauth_state');
-    localStorage.removeItem('github_oauth_state');
-    
-    // Reset state
+    // Clear all auth data
+    localStorage.removeItem('user');
+    localStorage.removeItem('token');
+    sessionStorage.clear();
     setUser(null);
-    setIsAdmin(false);
+    setToken(null);
     setIsAuthenticated(false);
+    setIsAdmin(false);
+    
+    // Clear GitHub OAuth state if it exists
+    ['github_oauth_state', 'oauth_state'].forEach(key => {
+      sessionStorage.removeItem(key);
+      localStorage.removeItem(key);
+    });
     
     // Redirect to login page
-    navigate('/login', { replace: true });
+    navigate('/login');
   };
 
   return (
     <AuthContext.Provider 
       value={{
         user,
+        token,
         isAdmin,
         isAuthenticated,
         loading,
         analytics,
         loginWithGitHub,
-        adminLogin,
+        handleAuthCallback,
         logout,
-        handleAuthCallback
+        setAnalytics,
+        // Add other methods and state as needed
       }}
     >
-      {children}
+      {!loading && children}
     </AuthContext.Provider>
   );
 };
