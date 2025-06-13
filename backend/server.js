@@ -380,8 +380,9 @@ app.get('/auth/github/callback', async (req, res) => {
       email: primaryEmail
     });
     
-    // Redirect to dashboard after successful login
-    const redirectUrl = createFrontendUrl('/dashboard');
+    // Redirect to home page (InputPage) after successful login
+    const redirectUrl = createFrontendUrl('/');
+    console.log('Redirecting to:', redirectUrl.toString());
     return res.redirect(redirectUrl.toString());
     
   } catch (error) {
