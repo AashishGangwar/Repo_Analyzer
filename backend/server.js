@@ -153,11 +153,11 @@ app.get('/auth/github', (req, res) => {
     const state = generateState();
     const cookieOptions = getCookieOptions();
     
-    // Set the state in a secure, HTTP-only cookie
-    res.cookie('oauth_state', state, cookieOptions);
+    // Set the state in a secure, HTTP-only cookie with the same name as frontend expects
+    res.cookie('github_oauth_state', state, cookieOptions);
     
     // Log the cookie being set
-    console.log('Setting oauth_state cookie with options:', {
+    console.log('Setting github_oauth_state cookie with options:', {
       ...cookieOptions,
       value: state.substring(0, 5) + '...' // Only log first 5 chars of state
     });
@@ -206,34 +206,21 @@ app.get('/auth/github/callback', async (req, res) => {
   // Log the complete URL for debugging
   console.log('Full callback URL:', req.protocol + '://' + req.get('host') + req.originalUrl);
   
-  // Get the state from the request
-  const stateFromGitHub = req.query.state;
-  const stateFromCookie = req.cookies?.oauth_state;
-  
-  console.log('State verification:', {
-    fromGitHub: stateFromGitHub || 'Not provided',
-    fromCookie: stateFromCookie || 'Not found',
-    match: stateFromGitHub && stateFromCookie ? (stateFromGitHub === stateFromCookie ? '✅ Match' : '❌ Mismatch') : 'N/A'
-  });
-  
-  // Save the original state for later use
-  const originalState = stateFromGitHub || stateFromCookie;
-  
-  // Check for state mismatch
-  if (!stateFromGitHub || !stateFromCookie || stateFromGitHub !== stateFromCookie) {
-    console.error('State validation failed - possible CSRF attack or expired session');
-    const redirectUrl = createFrontendUrl('/login', { 
-      error: 'state_mismatch',
-      message: 'State validation failed. Please try logging in again.'
-    });
-    return res.redirect(redirectUrl.toString());
-  }
-  
-  const { code, error, error_description } = req.query;
+  const { code, state: stateFromGitHub, error, error_description } = req.query;
+  const stateFromCookie = req.cookies.github_oauth_state; // Updated cookie name
   const cookieOptions = getCookieOptions();
   
+  // Log state for debugging before clearing the cookie
+  console.log('State validation - before clear:', { 
+    stateFromGitHub, 
+    stateFromCookie,
+    cookiePresent: !!stateFromCookie,
+    cookieLength: stateFromCookie ? stateFromCookie.length : 0,
+    allCookies: req.cookies
+  });
+  
   // Clear the state cookie immediately after reading it
-  res.clearCookie('oauth_state', cookieOptions);
+  res.clearCookie('github_oauth_state', cookieOptions);
   
   // Check for OAuth errors
   if (error) {
@@ -242,6 +229,27 @@ app.get('/auth/github/callback', async (req, res) => {
     const redirectUrl = createFrontendUrl('/', { 
       auth_error: 'github_oauth_failed',
       message: error_description || error 
+    });
+    return res.redirect(redirectUrl.toString());
+  }
+  
+  // Get state from session storage (sent from frontend)
+  const stateFromSession = req.headers['x-state-header'] || req.query.state;
+  
+  // Validate state parameter
+  if (!stateFromGitHub || (!stateFromCookie && !stateFromSession) || 
+      (stateFromGitHub !== stateFromCookie && stateFromGitHub !== stateFromSession)) {
+    console.error('State validation failed - possible CSRF attack or expired session:', {
+      stateFromGitHub: stateFromGitHub || 'undefined',
+      stateFromCookie: stateFromCookie || 'undefined',
+      statesMatch: stateFromGitHub === stateFromCookie,
+      receivedCookies: req.cookies,
+      requestHeaders: req.headers
+    });
+    
+    const redirectUrl = createFrontendUrl('/login', { 
+      error: 'state_mismatch',
+      details: 'State validation failed. Please try logging in again.'
     });
     return res.redirect(redirectUrl.toString());
   }
@@ -374,26 +382,21 @@ app.get('/auth/github/callback', async (req, res) => {
     // Create a JWT or use the GitHub token for frontend authentication
     const token = accessToken; // In production, consider creating a JWT instead
     
-    // Redirect to frontend with tokens and original state as URL parameters
+    // Redirect to frontend with tokens as URL parameters
+    // Using the frontend's callback route
     const frontendUrl = process.env.FRONTEND_URL || 'https://repo-analyzer-2ra5.vercel.app';
     const redirectUrl = new URL('/callback', frontendUrl);
     
-    // Add token, user data, and original state as URL parameters
+    // Add token and user data as URL parameters
     redirectUrl.searchParams.append('token', token);
     redirectUrl.searchParams.append('user', JSON.stringify(userData));
-    
-    // Always include the original state in the redirect
-    if (originalState) {
-      console.log('Including original state in redirect');
-      redirectUrl.searchParams.append('state', originalState);
-    } else {
-      console.warn('No original state available for redirect');
+    if (stateFromGitHub) {
+      redirectUrl.searchParams.append('state', stateFromGitHub);
     }
     
-    console.log('Redirecting to frontend with auth data (state included):', 
-      redirectUrl.toString().replace(/(state=)[^&]*/, '$1***'));
+    console.log('Redirecting to frontend with auth data:', redirectUrl.toString());
     
-    // Clear the OAuth state cookie after successful validation
+    // Clear any existing cookies to prevent conflicts
     res.clearCookie('oauth_state', getCookieOptions());
     
     // Redirect to the frontend with the token and user data

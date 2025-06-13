@@ -335,27 +335,29 @@ export const AuthProvider = ({ children }) => {
       console.log('=== Handling Auth Callback ===');
       console.log('Received auth data:', { user, state: state ? '***' : 'none' });
 
-      // Verify state to prevent CSRF
-      const savedState = sessionStorage.getItem('oauth_state');
+      // Get state from both sessionStorage and localStorage for redundancy
+      const savedSessionState = sessionStorage.getItem('github_oauth_state');
+      const savedLocalState = localStorage.getItem('github_oauth_state');
+      const savedState = savedSessionState || savedLocalState;
+      
       console.log('State verification:', {
-        savedState: savedState ? '✅ Present' : '❌ Missing',
+        savedSessionState: savedSessionState ? '✅ Present' : '❌ Missing',
+        savedLocalState: savedLocalState ? '✅ Present' : '❌ Missing',
         receivedState: state || 'none',
         stateMatch: savedState === state ? '✅ Valid' : '❌ Mismatch'
       });
 
       // Only check state if it was provided (for backward compatibility)
       if (state && (!savedState || savedState !== state)) {
-        // Clear state to prevent reuse
-        if (savedState) {
-          sessionStorage.removeItem('oauth_state');
-        }
+        // Clear states to prevent reuse
+        sessionStorage.removeItem('github_oauth_state');
+        localStorage.removeItem('github_oauth_state');
         throw new Error('Session expired or invalid state. Please try logging in again.');
       }
 
-      // Clear the state to prevent replay attacks
-      if (savedState) {
-        sessionStorage.removeItem('oauth_state');
-      }
+      // Clear the states to prevent replay attacks
+      sessionStorage.removeItem('github_oauth_state');
+      localStorage.removeItem('github_oauth_state');
 
       // Validate required user data
       if (!user || !user.id) {
