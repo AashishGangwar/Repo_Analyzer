@@ -38,7 +38,7 @@ const LoginForm = () => {
       sessionStorage.setItem('oauth_state', state);
       
       // Set the correct client ID and redirect URI based on environment
-      const clientId = 'YOUR_GITHUB_CLIENT_ID'; // Replace with your actual GitHub Client ID
+      const clientId = 'Ov23liA914N4ENADI5iu'; // Replace with your actual GitHub Client ID
       const redirectUri = window.location.hostname === 'localhost' 
         ? 'http://localhost:5000/auth/github/callback' 
         : 'https://repo-analyzer-vpzo.onrender.com/auth/github/callback';
