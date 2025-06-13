@@ -378,9 +378,17 @@ app.get('/auth/github/callback', async (req, res) => {
       email: primaryEmail
     });
     
-    // Redirect to home page (InputPage) after successful login
-    const redirectUrl = createFrontendUrl('/');
-    console.log('Redirecting to:', redirectUrl.toString());
+    // Create a JWT or use the GitHub token for frontend authentication
+    const token = accessToken; // In production, consider creating a JWT instead
+    
+    // Redirect to frontend with tokens as URL parameters
+    const redirectUrl = createFrontendUrl('/auth/callback', {
+      token: token,
+      user: JSON.stringify(userData),
+      state: stateFromGitHub // Include the original state for CSRF protection
+    });
+    
+    console.log('Redirecting to frontend with auth data:', redirectUrl.toString());
     return res.redirect(redirectUrl.toString());
     
   } catch (error) {

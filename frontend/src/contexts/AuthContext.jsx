@@ -518,7 +518,8 @@ export const AuthProvider = ({ children }) => {
         analytics,
         loginWithGitHub,
         adminLogin,
-        logout
+        logout,
+        handleAuthCallback
       }}
     >
       {children}

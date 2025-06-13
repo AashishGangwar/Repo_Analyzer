@@ -43,6 +43,7 @@ function AppContent() {
     <div style={{ minHeight: '100vh', backgroundColor: '#0f172a' }}>
       <Routes>
         <Route path="/login" element={<Login />} />
+        <Route path="/auth/callback" element={<AuthCallback />} />
         
         {/* Protected User Dashboard */}
         <Route 
