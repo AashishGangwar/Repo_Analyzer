@@ -134,7 +134,7 @@ const LoginForm = () => {
             disabled={isLoading}
           >
             <FaGithub className="github-icon" />
-            <span>Continue with GitHub</span>
+            <span>User continue with GitHub</span>
           </button>
         </form>
       </div>
